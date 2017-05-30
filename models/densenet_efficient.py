@@ -6,11 +6,51 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from collections import OrderedDict
+from torch.autograd import Function, Variable
 from torchvision.models.densenet import _Transition
 
 
+class _EfficientCat(Function):
+    def __init__(self, storage):
+        self.storage = storage
+
+
+    def forward(self, *input_vars):
+        self.storage = self.storage.type(input_vars[0].storage().type())
+
+        # Get size of new varible
+        self.all_num_channels = [input_var.size(1) for input_var in input_vars]
+        size = list(input_vars[0].size())
+        for num_channels in self.all_num_channels[1:]:
+            size[1] += num_channels
+
+        # Create variable, using existing storage
+        res = type(input_vars[0])(self.storage).resize_(size)
+
+        # Copy to storage
+        index = 0
+        for num_channels, input_var in zip(self.all_num_channels, input_vars):
+            new_index = num_channels + index
+            res[:, index:new_index].copy_(input_var)
+            index = new_index
+
+        return res
+
+
+    def backward(self, grad_output):
+        # Return a table of tensors pointing to same storage
+        res = []
+        index = 0
+        for num_channels in self.all_num_channels:
+            new_index = num_channels + index
+            res.append(grad_output[:, index:new_index])
+            index = new_index
+
+        return tuple(res)
+
+
 class _DenseLayer(nn.Sequential):
-    def __init__(self, num_input_features, growth_rate, bn_size, drop_rate):
+    def __init__(self, input_storage, num_input_features, growth_rate, bn_size, drop_rate):
         super(_DenseLayer, self).__init__()
         self.add_module('norm.1', nn.BatchNorm2d(num_input_features)),
         self.add_module('relu.1', nn.ReLU(inplace=True)),
@@ -26,19 +66,35 @@ class _DenseLayer(nn.Sequential):
                             kernel_size=3, stride=1, padding=1, bias=False)),
         self.drop_rate = drop_rate
 
+        # Buffers for efficient memory usage
+        self.efficient_cat = _EfficientCat(input_storage)
+
+
     def forward(self, x):
-        new_features = super(_DenseLayer, self).forward(x)
+        prev_features = self.efficient_cat(*x)
+        new_features = super(_DenseLayer, self).forward(prev_features)
         if self.drop_rate > 0:
             new_features = F.dropout(new_features, p=self.drop_rate, training=self.training)
-        return torch.cat([x, new_features], 1)
+        return new_features
 
 
-class _DenseBlock(nn.Sequential):
-    def __init__(self, num_layers, num_input_features, bn_size, growth_rate, drop_rate):
+class _DenseBlock(nn.Container):
+    def __init__(self, map_size, num_layers, num_input_features, bn_size, growth_rate, drop_rate):
+        storage_size = map_size * (num_input_features + num_layers * growth_rate)
+        self.input_storage = torch.Storage(storage_size)
+
         super(_DenseBlock, self).__init__()
         for i in range(num_layers):
-            layer = _DenseLayer(num_input_features + i * growth_rate, growth_rate, bn_size, drop_rate)
+            layer = _DenseLayer(self.input_storage, num_input_features + i * growth_rate, growth_rate, bn_size, drop_rate)
             self.add_module('denselayer%d' % (i + 1), layer)
+
+
+    def forward(self, x):
+        outputs = [x]
+        for module in self.children():
+            outputs.append(module.forward(outputs))
+        return _EfficientCat(self.input_storage)(*outputs)
+
 
 class DenseNetEfficient(nn.Module):
     r"""Densenet-BC model class, based on
@@ -70,7 +126,9 @@ class DenseNetEfficient(nn.Module):
         # Each denseblock
         num_features = num_init_features
         for i, num_layers in enumerate(block_config):
-            block = _DenseBlock(num_layers=num_layers,
+            map_size = 256 * 32 * 32
+            block = _DenseBlock(map_size=map_size,
+                                num_layers=num_layers,
                                 num_input_features=num_features,
                                 bn_size=bn_size, growth_rate=growth_rate,
                                 drop_rate=drop_rate)
