@@ -9,7 +9,7 @@ from torch.autograd import Variable
 from torch.utils.data.sampler import SubsetRandomSampler
 
 from utils import Meter, Logger
-from models import DenseNet
+from models import DenseNet, DenseNetEfficient
 
 
 class Runner():
@@ -18,6 +18,7 @@ class Runner():
         save='/tmp',
         depth=40,
         growth_rate=12,
+        efficient=True,
     ):
         self.data = data
         self.save = save
@@ -48,7 +49,8 @@ class Runner():
         self.test_set = tv.datasets.CIFAR10(data_root, train=False, transform=test_transforms, download=False)
 
         # Models
-        self.model = DenseNet(
+        klass = DenseNetEfficient if efficient else DenseNet
+        self.model = klass(
             growth_rate=growth_rate,
             block_config=block_config,
             num_classes=10
