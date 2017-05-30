@@ -109,8 +109,8 @@ class Runner():
                 optimizer.zero_grad()
 
             # Forward pass
-            input_var = Variable(input, volatile=(not train)).cuda()
-            target_var = Variable(target, volatile=(not train), requires_grad=False).cuda()
+            input_var = Variable(input, volatile=(not train)).cuda(async=True)
+            target_var = Variable(target, volatile=(not train), requires_grad=False).cuda(async=True)
             output_var = model(input_var)
             loss = criterion(output_var, target_var)
 
