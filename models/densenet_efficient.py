@@ -5,9 +5,10 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from efficient_densenet_bottleneck import _Buffer, _EfficientBatchNorm2d
+from efficient_densenet_bottleneck import _Buffer
 from operator import mul
 from collections import OrderedDict
+from torch.autograd import Variable
 from torchvision.models.densenet import _Transition
 
 
@@ -17,7 +18,7 @@ class _DenseLayer(nn.Sequential):
         self.buffr = buffr
         self.drop_rate = drop_rate
 
-        self.add_module('norm.1', _EfficientBatchNorm2d(self.buffr, num_input_features)),
+        self.add_module('norm.1', nn.BatchNorm2d(num_input_features)),
         self.add_module('relu.1', nn.ReLU(inplace=True)),
         if bn_size > 0:
             self.add_module('conv.1', nn.Conv2d(num_input_features, bn_size *
@@ -32,11 +33,11 @@ class _DenseLayer(nn.Sequential):
 
 
     def forward(self, x):
-        # if isinstance(x, Variable):
-            # prev_features = x
-        # else:
-            # prev_features = self.buffr.cat(x)
-        new_features = super(_DenseLayer, self).forward(x)
+        if isinstance(x, Variable):
+            prev_features = x
+        else:
+            prev_features = self.buffr.cat(x)
+        new_features = super(_DenseLayer, self).forward(prev_features)
         if self.drop_rate > 0:
             new_features = F.dropout(new_features, p=self.drop_rate, training=self.training)
         return new_features

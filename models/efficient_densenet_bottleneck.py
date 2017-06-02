@@ -35,68 +35,6 @@ class _EfficientCatFn(Function):
         return tuple(res)
 
 
-class _EfficientBatchNorm(_EfficientCatFn):
-    def __init__(self, storage, running_mean, running_var,
-            training=False, momentum=0.1, eps=1e-5):
-        self.storage = storage
-        self.running_mean = running_mean
-        self.running_var = running_var
-        self.training = training
-        self.momentum = momentum
-        self.eps = eps
-
-
-    def forward(self, weight, bias, *inputs):
-        # Assert we're using cudnn
-        for input in ([weight, bias] + list(inputs)):
-            if not(cudnn.is_acceptable(input)):
-                raise Exception('You must be using CUDNN to use EfficientBatchNorm')
-
-        # Create save variables if they don't exist
-        self.save_mean = self.save_mean if hasattr(self, 'save_mean') else self.running_mean.new()
-        self.save_mean.resize_as_(self.running_mean)
-        self.save_var = self.save_var if hasattr(self, 'save_var') else self.running_var.new()
-        self.save_var.resize_as_(self.running_var)
-
-        # Buffer for weights and bias
-        self.inputs = inputs
-        self.weight = weight
-        self.bias = bias
-
-        # Do forward pass
-        res = super(_EfficientBatchNorm, self).forward(*inputs)
-        torch._C._cudnn_batch_norm_forward(res, res,
-                weight, bias,
-                self.running_mean, self.running_var,
-                self.save_mean, self.save_var,
-                self.training, self.momentum, self.eps)
-
-        return res
-
-
-    def backward(self, grad_output):
-        # Create grad variables if they don't exist
-        if not hasattr(self, 'grad_weight'):
-            self.grad_weight = self.weight.new()
-            self.grad_weight.resize_as_(self.weight)
-        if not hasattr(self, 'grad_bias'):
-            self.grad_bias = self.bias.new()
-            self.grad_bias.resize_as_(self.bias)
-
-        # Get input through a forward pass
-        input = super(_EfficientBatchNorm, self).forward(*self.inputs)
-
-        # Run backwards pass - result stored in grad_output
-        torch._C._cudnn_batch_norm_backward(input, grad_output,
-                grad_output, self.grad_weight, self.grad_bias,
-                self.weight, self.running_mean, self.running_var,
-                self.save_mean, self.save_var,
-                self.training, self.eps)
-
-        # Unpack grad_output
-        unpacked_grad_input = super(_EfficientBatchNorm, self).backward(grad_output)
-        res = tuple([self.grad_weight, self.grad_bias] + list(unpacked_grad_input))
-        return res
 
 
 class _Buffer(object):
