@@ -158,7 +158,7 @@ class _EfficientBatchNorm2d(_BatchNorm):
             raise ValueError('got {}-feature tensors, expected {}'.format(nchannels, self.num_features))
 
 
-    def forward(self, *inputs):
+    def forward(self, inputs):
 	self._check_input_dim(inputs)
 	return self.buffr.batch_norm(inputs, self.running_mean, self.running_var,
 	    self.weight, self.bias, self.training, self.momentum, self.eps)
@@ -185,11 +185,11 @@ class _DenseLayer(nn.Sequential):
 
 
     def forward(self, x):
-        if isinstance(x, Variable):
-            prev_features = x
-        else:
-            prev_features = self.buffr.cat(x)
-        new_features = super(_DenseLayer, self).forward(prev_features)
+        # if isinstance(x, Variable):
+            # prev_features = x
+        # else:
+            # prev_features = self.buffr.cat(x)
+        new_features = super(_DenseLayer, self).forward(x)
         if self.drop_rate > 0:
             new_features = F.dropout(new_features, p=self.drop_rate, training=self.training)
         return new_features
@@ -220,7 +220,7 @@ class _DenseBlock(nn.Container):
         outputs = [x]
         for module in self.children():
             outputs.append(module.forward(outputs))
-        return self.buffr.cat(outputs)
+        return torch.cat(outputs, dim=1)
 
 
 class DenseNetEfficient(nn.Module):
