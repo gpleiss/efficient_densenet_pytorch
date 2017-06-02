@@ -3,7 +3,7 @@ import torch.nn.functional as F
 from torch.autograd import Variable
 from torch.nn import Parameter
 
-from models.densenet_efficient import _Buffer
+from models.efficient_densenet_bottleneck import _Buffer
 
 
 def almost_equal(self, other, eps=1e-5):
