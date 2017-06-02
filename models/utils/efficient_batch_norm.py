@@ -15,8 +15,8 @@ class EfficientBatchNorm(object):
 
     def forward(self, weight, bias, input):
         # Assert we're using cudnn
-        for input in ([weight, bias, input]):
-            if not(cudnn.is_acceptable(input)):
+        for i in ([weight, bias, input]):
+            if i is not None and not(cudnn.is_acceptable(i)):
                 raise Exception('You must be using CUDNN to use EfficientBatchNorm')
 
         # Create save variables
