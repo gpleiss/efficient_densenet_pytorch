@@ -16,16 +16,16 @@ class _EfficientCatFn(Function):
         self.storage = storage
 
 
-    def forward(self, *input_vars):
+    def forward(self, *inputs):
         # Get size of new varible
-        self.all_num_channels = [input_var.size(1) for input_var in input_vars]
-        size = list(input_vars[0].size())
+        self.all_num_channels = [input.size(1) for input in inputs]
+        size = list(inputs[0].size())
         for num_channels in self.all_num_channels[1:]:
             size[1] += num_channels
 
         # Create variable, using existing storage
-        res = type(input_vars[0])(self.storage).resize_(size)
-        torch.cat(input_vars, dim=1, out=res)
+        res = type(inputs[0])(self.storage).resize_(size)
+        torch.cat(inputs, dim=1, out=res)
         return res
 
 
