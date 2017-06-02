@@ -9,6 +9,7 @@ import torch.backends.cudnn as cudnn
 from operator import mul
 from collections import OrderedDict
 from torch.autograd import Function, Variable
+from torch.nn.modules.batchnorm import _BatchNorm
 from torchvision.models.densenet import _Transition
 
 
@@ -142,10 +143,34 @@ class _Buffer(object):
         return res
 
 
+class _EfficientBatchNorm2d(_BatchNorm):
+    def __init__(self, buffr, *args, **kwargs):
+        self.buffr = buffr
+        return super(_EfficientBatchNorm2d, self).__init__(*args, **kwargs)
+
+
+    def _check_input_dim(self, inputs):
+	for input in inputs:
+	    if input.dim() != 4:
+		raise ValueError('expected 4D input (got {}D input)'.format(input.dim()))
+	nchannels = sum([input.size(1) for input in inputs])
+        if nchannels != self.running_mean.nelement():
+            raise ValueError('got {}-feature tensors, expected {}'.format(nchannels, self.num_features))
+
+
+    def forward(self, *inputs):
+	self._check_input_dim(inputs)
+	return self.buffr.batch_norm(inputs, self.running_mean, self.running_var,
+	    self.weight, self.bias, self.training, self.momentum, self.eps)
+
+
 class _DenseLayer(nn.Sequential):
     def __init__(self, buffr, num_input_features, growth_rate, bn_size, drop_rate):
         super(_DenseLayer, self).__init__()
-        self.add_module('norm.1', nn.BatchNorm2d(num_input_features)),
+        self.buffr = buffr
+        self.drop_rate = drop_rate
+
+        self.add_module('norm.1', _EfficientBatchNorm2d(self.buffr, num_input_features)),
         self.add_module('relu.1', nn.ReLU(inplace=True)),
         if bn_size > 0:
             self.add_module('conv.1', nn.Conv2d(num_input_features, bn_size *
@@ -157,8 +182,6 @@ class _DenseLayer(nn.Sequential):
         else:
             self.add_module('conv.1', nn.Conv2d(num_input_features, growth_rate,
                             kernel_size=3, stride=1, padding=1, bias=False)),
-        self.drop_rate = drop_rate
-        self.buffr = buffr
 
 
     def forward(self, x):
