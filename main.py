@@ -151,7 +151,11 @@ class Runner():
         lr=0.1,
         wd=0.0001,
         momentum=0.9,
+	seed=None,
     ):
+        if seed is not None:
+            torch.manual_seed(seed)
+
         # Make model, criterion, optimizer, data loaders
         train_loader, valid_loader, test_loader = self._make_dataloaders(
             train_size=train_size,
