@@ -22,6 +22,5 @@ class EfficientReLU(object):
 
     def backward(self, input, grad_output):
 	grad_input = grad_output
-        grad_input.masked_fill_(input < 0, 0)
-        print(grad_input)
+        grad_input.masked_fill_(input <= 0, 0)
         return grad_input

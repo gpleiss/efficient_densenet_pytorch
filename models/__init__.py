@@ -1,3 +1,4 @@
 import utils
 from densenet import DenseNet
 from densenet_efficient import DenseNetEfficient
+from efficient_densenet_bottleneck import EfficientDensenetBottleneck

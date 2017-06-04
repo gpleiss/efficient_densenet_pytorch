@@ -5,7 +5,8 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from efficient_densenet_bottleneck import _Buffer
+from efficient_densenet_bottleneck import EfficientDensenetBottleneck
+from models.utils import Buffer
 from operator import mul
 from collections import OrderedDict
 from torch.autograd import Variable
@@ -13,30 +14,29 @@ from torchvision.models.densenet import _Transition
 
 
 class _DenseLayer(nn.Sequential):
-    def __init__(self, buffr, num_input_features, growth_rate, bn_size, drop_rate):
+    def __init__(self, buffr_1, buffr_2, num_input_features, growth_rate, bn_size, drop_rate):
         super(_DenseLayer, self).__init__()
-        self.buffr = buffr
+        self.buffr_1 = buffr_1
+        self.buffr_2 = buffr_2
         self.drop_rate = drop_rate
 
-        self.add_module('norm.1', nn.BatchNorm2d(num_input_features)),
-        self.add_module('relu.1', nn.ReLU(inplace=True)),
         if bn_size > 0:
-            self.add_module('conv.1', nn.Conv2d(num_input_features, bn_size *
-                            growth_rate, kernel_size=1, stride=1, bias=False)),
+            self.add_module('bn', EfficientDensenetBottleneck(buffr_1, buffr_2,
+                num_input_features, bn_size * growth_rate))
             self.add_module('norm.2', nn.BatchNorm2d(bn_size * growth_rate)),
             self.add_module('relu.2', nn.ReLU(inplace=True)),
             self.add_module('conv.2', nn.Conv2d(bn_size * growth_rate, growth_rate,
                             kernel_size=3, stride=1, padding=1, bias=False)),
         else:
-            self.add_module('conv.1', nn.Conv2d(num_input_features, growth_rate,
-                            kernel_size=3, stride=1, padding=1, bias=False)),
+            self.add_module('bn', EfficientDensenetBottleneck(buffr_1, buffr_2,
+                num_input_features, growth_rate))
 
 
     def forward(self, x):
         if isinstance(x, Variable):
-            prev_features = x
+            prev_features = [x]
         else:
-            prev_features = self.buffr.cat(x)
+            prev_features = x
         new_features = super(_DenseLayer, self).forward(prev_features)
         if self.drop_rate > 0:
             new_features = F.dropout(new_features, p=self.drop_rate, training=self.training)
@@ -45,25 +45,30 @@ class _DenseLayer(nn.Sequential):
 
 class _DenseBlock(nn.Container):
     def __init__(self, num_layers, num_input_features, bn_size, growth_rate, drop_rate, storage_size=1024):
-        input_storage = torch.Storage(storage_size)
+        input_storage_1 = torch.Storage(storage_size)
+        input_storage_2 = torch.Storage(storage_size)
         self.final_num_features = num_input_features + (growth_rate * num_layers)
-        self.buffr = _Buffer(input_storage)
+        self.buffr_1 = Buffer(input_storage_1)
+        self.buffr_2 = Buffer(input_storage_2)
 
         super(_DenseBlock, self).__init__()
         for i in range(num_layers):
-            layer = _DenseLayer(self.buffr, num_input_features + i * growth_rate, growth_rate, bn_size, drop_rate)
+            layer = _DenseLayer(self.buffr_1, self.buffr_2,
+                    num_input_features + i * growth_rate, growth_rate, bn_size, drop_rate)
             self.add_module('denselayer%d' % (i + 1), layer)
 
 
     def forward(self, x):
         # Update storage type
-        self.buffr.type_as(x)
+        self.buffr_1.type_as(x)
+        self.buffr_2.type_as(x)
 
         # Resize storage
         final_size = list(x.size())
         final_size[1] = self.final_num_features
         final_storage_size = reduce(mul, final_size, 1)
-        self.buffr.resize_(final_storage_size)
+        self.buffr_1.resize_(final_storage_size)
+        self.buffr_2.resize_(final_storage_size)
 
         outputs = [x]
         for module in self.children():
