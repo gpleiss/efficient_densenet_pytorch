@@ -21,6 +21,7 @@ def test_forward_eval_mode_computes_forward_pass():
 
     input_1 = torch.randn(4, 5).cuda()
     input_2 = torch.randn(4, 5).cuda()
+    storage = torch.Storage(40).cuda()
 
     bn = F.batch_norm(
         input=Variable(torch.cat([input_1, input_2], dim=1)),
@@ -35,6 +36,7 @@ def test_forward_eval_mode_computes_forward_pass():
 
     input_efficient = torch.cat([input_1, input_2], dim=1)
     func = EfficientBatchNorm(
+        storage=storage,
         running_mean=running_mean,
         running_var=running_var,
         training=False,
@@ -44,7 +46,7 @@ def test_forward_eval_mode_computes_forward_pass():
     bn_efficient = func.forward(weight, bias, input_efficient)
 
     assert(almost_equal(bn, bn_efficient))
-    assert(bn_efficient.storage().data_ptr() == input_efficient.storage().data_ptr())
+    assert(bn_efficient.storage().data_ptr() == storage.data_ptr())
 
 
 def test_forward_train_mode_computes_forward_pass():
@@ -60,6 +62,7 @@ def test_forward_train_mode_computes_forward_pass():
 
     input_1 = torch.randn(4, 5).cuda()
     input_2 = torch.randn(4, 5).cuda()
+    storage = torch.Storage(40).cuda()
 
     bn = F.batch_norm(
         input=Variable(torch.cat([input_1, input_2], dim=1)),
@@ -74,6 +77,7 @@ def test_forward_train_mode_computes_forward_pass():
 
     input_efficient = torch.cat([input_1, input_2], dim=1)
     func = EfficientBatchNorm(
+        storage=storage,
         running_mean=running_mean_efficient,
         running_var=running_var_efficient,
         training=True,
@@ -83,7 +87,7 @@ def test_forward_train_mode_computes_forward_pass():
     bn_efficient = func.forward(weight, bias, input_efficient)
 
     assert(almost_equal(bn, bn_efficient))
-    assert(bn_efficient.storage().data_ptr() == input_efficient.storage().data_ptr())
+    assert(bn_efficient.storage().data_ptr() == storage.data_ptr())
     assert(almost_equal(running_mean, running_mean_efficient))
     assert(almost_equal(running_var, running_var_efficient))
 
@@ -103,6 +107,7 @@ def test_backward_train_mode_computes_forward_pass():
 
     input_1 = torch.randn(4, 5).cuda()
     input_2 = torch.randn(4, 5).cuda()
+    storage = torch.Storage(40).cuda()
 
     input_var = Variable(torch.cat([input_1, input_2], dim=1), requires_grad=True)
     weight_var = Parameter(weight)
@@ -126,6 +131,7 @@ def test_backward_train_mode_computes_forward_pass():
     input_efficient = torch.cat([input_1, input_2], dim=1)
     input_efficient_orig = input_efficient.clone()
     func = EfficientBatchNorm(
+        storage=storage,
         running_mean=running_mean_efficient,
         running_var=running_var_efficient,
         training=True,

@@ -4,8 +4,9 @@ import torch.nn.functional as F
 import torch.backends.cudnn as cudnn
 
 class EfficientBatchNorm(object):
-    def __init__(self, running_mean, running_var,
+    def __init__(self, storage, running_mean, running_var,
             training=False, momentum=0.1, eps=1e-5):
+        self.storage = storage
         self.running_mean = running_mean
         self.running_var = running_var
         self.training = training
@@ -26,7 +27,8 @@ class EfficientBatchNorm(object):
         self.save_var.resize_as_(self.running_var)
 
         # Do forward pass - store in input variable
-        res = input
+        res = type(input)(self.storage)
+        res.resize_as_(input)
         torch._C._cudnn_batch_norm_forward(input, res,
                 weight, bias,
                 self.running_mean, self.running_var,
