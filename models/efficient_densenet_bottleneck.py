@@ -48,7 +48,7 @@ class _EfficientDensenetBottleneckFn(Function):
 
 
     def backward(self, grad_output):
-        # Turn off bn training status, and temporarely reset statistics
+        # Turn off bn training status, and temporarily reset statistics
         training = self.efficient_batch_norm.training
         self.curr_running_mean.copy_(self.efficient_batch_norm.running_mean)
         self.curr_running_var.copy_(self.efficient_batch_norm.running_var)
@@ -98,7 +98,7 @@ class EfficientDensenetBottleneck(nn.Module):
         self.norm_bias = Parameter(torch.Tensor(num_input_channels))
         self.register_buffer('norm_running_mean', torch.zeros(num_input_channels))
         self.register_buffer('norm_running_var', torch.ones(num_input_channels))
-        self.conv_weight = Parameter(torch.Tensor(num_output_channels, num_input_channels, 3, 3))
+        self.conv_weight = Parameter(torch.Tensor(num_output_channels, num_input_channels, 1, 1))
         self._reset_parameters()
 
 
@@ -107,7 +107,7 @@ class EfficientDensenetBottleneck(nn.Module):
         self.norm_running_var.fill_(1)
         self.norm_weight.data.uniform_()
         self.norm_bias.data.zero_()
-        stdv = 1. / math.sqrt(self.num_input_channels * 3 * 3)
+        stdv = 1. / math.sqrt(self.num_input_channels)
         self.conv_weight.data.uniform_(-stdv, stdv)
 
 
@@ -116,6 +116,6 @@ class EfficientDensenetBottleneck(nn.Module):
             inputs = [inputs]
         fn = _EfficientDensenetBottleneckFn(self.buffr_1, self.buffr_2,
             self.norm_running_mean, self.norm_running_var,
-            stride=1, padding=1, dilation=1, groups=1,
+            stride=1, padding=0, dilation=1, groups=1,
             training=self.training, momentum=0.1, eps=1e-5)
         return fn(self.norm_weight, self.norm_bias, self.conv_weight, *inputs)

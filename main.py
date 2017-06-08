@@ -26,7 +26,7 @@ class Runner():
         # Get densenet configuration
         if (depth - 4) % 3:
             raise Exception('Invalid depth')
-        block_config = [(depth - 4) // 3 for _ in range(3)]
+        block_config = [(depth - 4) // 6 for _ in range(3)]
 
         # Data transforms
         mean = [0.5071, 0.4867, 0.4408]
