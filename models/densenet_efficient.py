@@ -9,8 +9,80 @@ from efficient_densenet_bottleneck import EfficientDensenetBottleneck
 from models.utils import Buffer
 from operator import mul
 from collections import OrderedDict
-from torch.autograd import Variable
+from torch.autograd import Variable, Function
 from torchvision.models.densenet import _Transition
+from torch.backends import cudnn
+
+
+class _SharedConv2dFunction(Function):
+    def __init__(self, buffer, buffer_start, in_channels, out_channels,
+                 stride=(1, 1), padding=(0, 0), dilation=(1, 1), groups=1):
+        self.buffer = buffer
+        self.buffer_start = buffer_start
+        self.in_channels = in_channels
+        self.out_channels = out_channels
+        self.stride = stride
+        self.padding = padding
+        self.dilation = dilation
+        self.groups = groups
+
+    def forward(self, input, weight):
+        # Assert we're using cudnn
+        for i in ([weight, input]):
+            if i is not None and not(cudnn.is_acceptable(i)):
+                raise Exception('You must be using CUDNN to use EfficientBatchNorm')
+
+        # get storage for output
+        output = self.buffer[:, self.buffer_start:(self.buffer_start + self.out_channels)]
+        # print(self.buffer.size(), output.size(), input.size(), weight.size())
+        # print(self.buffer.type(), output.type(), input.type(), weight.type())
+        # print(self.padding, self.stride, self.dilation, self.groups)
+        # print(input.is_contiguous(), weight.is_contiguous(), output.is_contiguous())
+
+        # Perform convolution
+        self._cudnn_info = torch._C._cudnn_convolution_full_forward(
+            input, weight, None, output,
+            self.padding, self.stride, self.dilation,
+            self.groups, cudnn.benchmark)
+
+        self.save_for_backward(input, weight)
+        return self.buffer[:, :(self.buffer_start + self.out_channels)]
+
+    def backward(self, grad_output):
+        input, weight = self.saved_tensors
+        grad_input = None
+        grad_weight = None
+
+        if self.needs_input_grad[0]:
+            grad_input = type(input)(self.buffer)
+            grad_input.resize_as_(input)
+            torch._C._cudnn_convolution_backward_data(
+                grad_output, grad_input, weight, self._cudnn_info,
+                cudnn.benchmark)
+
+        if self.needs_input_grad[1]:
+            grad_weight = weight.new().resize_as_(weight)
+            torch._C._cudnn_convolution_backward_filter(
+                grad_output, input, grad_weight, self._cudnn_info,
+                cudnn.benchmark)
+
+        return grad_input, grad_weight
+
+
+class _SharedConv2d(nn.Conv2d):
+    def __init__(self, buffer, buffer_start, in_channels, out_channels, kernel_size,
+                 stride=1, padding=1):
+        super(_SharedConv2d, self).__init__(in_channels, out_channels, kernel_size,
+                                            stride, padding, bias=False)
+        self.buffer = buffer
+        self.buffer_start = buffer_start
+
+    def forward(self, input):
+        buffer = type(input.data)(self.buffer.storage).view(input.size(0), -1, input.size(2), input.size(3))
+        function = _SharedConv2dFunction(buffer, self.buffer_start, self.in_channels,
+                                         self.out_channels, self.stride,
+                                         self.padding)
+        return function(input, self.weight)
 
 
 class _DenseLayer(nn.Sequential):
@@ -18,29 +90,24 @@ class _DenseLayer(nn.Sequential):
         super(_DenseLayer, self).__init__()
         self.buffr_1 = buffr_1
         self.buffr_2 = buffr_2
+        self.num_input_features = num_input_features
+        self.growth_rate = growth_rate
         self.drop_rate = drop_rate
 
-        if bn_size > 0:
-            self.add_module('bn', EfficientDensenetBottleneck(buffr_1, buffr_2,
-                num_input_features, bn_size * growth_rate))
-            self.add_module('norm.2', nn.BatchNorm2d(bn_size * growth_rate)),
-            self.add_module('relu.2', nn.ReLU(inplace=True)),
-            self.add_module('conv.2', nn.Conv2d(bn_size * growth_rate, growth_rate,
-                            kernel_size=3, stride=1, padding=1, bias=False)),
-        else:
-            self.add_module('bn', EfficientDensenetBottleneck(buffr_1, buffr_2,
-                num_input_features, growth_rate))
+        self.add_module('bn', EfficientDensenetBottleneck(buffr_1,
+            num_input_features, bn_size * growth_rate))
+        self.add_module('norm.2', nn.BatchNorm2d(bn_size * growth_rate))
+        self.add_module('relu.2', nn.ReLU(inplace=True))
+        self.add_module('conv.2', _SharedConv2d(self.buffr_2, self.num_input_features,
+            bn_size * growth_rate, growth_rate,
+            kernel_size=3, stride=1, padding=1))
 
-
-    def forward(self, x):
-        if isinstance(x, Variable):
-            prev_features = [x]
-        else:
-            prev_features = x
-        new_features = super(_DenseLayer, self).forward(prev_features)
+    def forward(self, input):
+        result = super(_DenseLayer, self).forward(input)
         if self.drop_rate > 0:
-            new_features = F.dropout(new_features, p=self.drop_rate, training=self.training)
-        return new_features
+            new_features = result[:, self.num_input_features:(self.num_input_features + self.growth_rate)]
+            F.dropout(new_features, p=self.drop_rate, training=self.training, inplace=True)
+        return result
 
 
 class _DenseBlock(nn.Container):
@@ -70,11 +137,15 @@ class _DenseBlock(nn.Container):
         self.buffr_1.resize_(final_storage_size)
         self.buffr_2.resize_(final_storage_size)
 
-        outputs = [x]
-        for module in self.children():
-            outputs.append(module.forward(outputs))
-        return torch.cat(outputs, dim=1)
+        # Copy over stuff to buffer 2
+        tensor = type(x.data)(self.buffr_2.storage)
+        input_size = x.size()
+        tensor = tensor.view(x.size(0), -1, x.size(2), x.size(3))
+        tensor[:, 0:x.size(1)].copy_(x.data)
 
+        for module in self.children():
+            x = module(x)
+        return x
 
 class DenseNetEfficient(nn.Module):
     r"""Densenet-BC model class, based on

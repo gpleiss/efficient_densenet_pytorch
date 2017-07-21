@@ -4,8 +4,7 @@ import torch.nn.functional as F
 import torch.backends.cudnn as cudnn
 
 class EfficientConv2d(object):
-    def __init__(self, storage, stride=1, padding=0, dilation=1, groups=1):
-        self.storage = storage
+    def __init__(self, stride=1, padding=0, dilation=1, groups=1):
         self.stride = stride
         self.padding = padding
         self.dilation = dilation
@@ -45,7 +44,7 @@ class EfficientConv2d(object):
 
 
     def backward(self, weight, bias, input, grad_output):
-        grad_input = type(input)(self.storage)
+        grad_input = input.new()
         grad_input.resize_as_(input)
 	torch._C._cudnn_convolution_backward_data(
 	    grad_output, grad_input, weight, self._cudnn_info,

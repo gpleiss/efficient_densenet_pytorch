@@ -24,7 +24,7 @@ class Runner():
         self.save = save
 
         # Get densenet configuration
-        if (depth - 4) % 3:
+        if (depth - 4) % 6:
             raise Exception('Invalid depth')
         block_config = [(depth - 4) // 6 for _ in range(3)]
 
