@@ -2,8 +2,7 @@ import torch
 import torch.nn.functional as F
 from torch.autograd import Variable
 from torch.nn import Parameter
-
-from models.utils import EfficientBatchNorm
+from models.densenet_efficient import _EfficientBatchNorm
 
 
 def almost_equal(self, other, eps=1e-5):
@@ -35,7 +34,7 @@ def test_forward_eval_mode_computes_forward_pass():
     ).data
 
     input_efficient = torch.cat([input_1, input_2], dim=1)
-    func = EfficientBatchNorm(
+    func = _EfficientBatchNorm(
         storage=storage,
         running_mean=running_mean,
         running_var=running_var,
@@ -76,7 +75,7 @@ def test_forward_train_mode_computes_forward_pass():
     ).data
 
     input_efficient = torch.cat([input_1, input_2], dim=1)
-    func = EfficientBatchNorm(
+    func = _EfficientBatchNorm(
         storage=storage,
         running_mean=running_mean_efficient,
         running_var=running_var_efficient,
@@ -130,7 +129,7 @@ def test_backward_train_mode_computes_forward_pass():
 
     input_efficient = torch.cat([input_1, input_2], dim=1)
     input_efficient_orig = input_efficient.clone()
-    func = EfficientBatchNorm(
+    func = _EfficientBatchNorm(
         storage=storage,
         running_mean=running_mean_efficient,
         running_var=running_var_efficient,

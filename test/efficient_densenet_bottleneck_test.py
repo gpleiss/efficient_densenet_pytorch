@@ -5,8 +5,7 @@ from torch.autograd import Variable
 from torch.nn import Parameter
 from collections import OrderedDict
 
-from models import EfficientDensenetBottleneck
-from models.utils import Buffer
+from models.densenet_efficient import _EfficientDensenetBottleneck, _SharedAllocation
 
 
 def almost_equal(self, other, eps=1e-5):
@@ -40,8 +39,8 @@ def test_forward_training_false_computes_forward_pass():
 
     storage_1 = torch.Storage(4 * 8 * 3 * 3).cuda()
     storage_2 = torch.Storage(4 * 8 * 3 * 3).cuda()
-    layer_efficient = EfficientDensenetBottleneck(
-        Buffer(storage_1), Buffer(storage_2), 8, 4
+    layer_efficient = _EfficientDensenetBottleneck(
+        _SharedAllocation(storage_1), _SharedAllocation(storage_2), 8, 4
     ).cuda()
     layer_efficient.eval()
     layer_efficient.norm_weight.data.copy_(bn_weight)
@@ -84,8 +83,8 @@ def test_forward_training_false_computes_forward_pass():
 
     storage_1 = torch.Storage(4 * 8 * 3 * 3).cuda()
     storage_2 = torch.Storage(4 * 8 * 3 * 3).cuda()
-    layer_efficient = EfficientDensenetBottleneck(
-        Buffer(storage_1), Buffer(storage_2), 8, 4
+    layer_efficient = _EfficientDensenetBottleneck(
+        _SharedAllocation(storage_1), _SharedAllocation(storage_2), 8, 4
     ).cuda()
     layer_efficient.train()
     layer_efficient.norm_weight.data.copy_(bn_weight)
@@ -131,8 +130,8 @@ def test_backward_computes_backward_pass():
 
     storage_1 = torch.Storage(4 * 8 * 3 * 3).cuda()
     storage_2 = torch.Storage(4 * 8 * 3 * 3).cuda()
-    layer_efficient = EfficientDensenetBottleneck(
-        Buffer(storage_1), Buffer(storage_2), 8, 4
+    layer_efficient = _EfficientDensenetBottleneck(
+        _SharedAllocation(storage_1), _SharedAllocation(storage_2), 8, 4
     ).cuda()
     layer_efficient.train()
     layer_efficient.norm_weight.data.copy_(bn_weight)

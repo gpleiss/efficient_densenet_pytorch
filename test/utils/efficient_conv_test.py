@@ -3,7 +3,7 @@ import torch.nn.functional as F
 from torch.autograd import Variable
 from torch.nn import Parameter
 
-from models.utils import EfficientConv2d
+from models.densenet_efficient import _EfficientConv2d
 
 
 def almost_equal(self, other, eps=1e-5):
@@ -25,7 +25,7 @@ def test_forward_computes_forward_pass():
     ).data
 
     storage = torch.Storage(4 * 8 * 3 * 3).cuda()
-    func = EfficientConv2d(
+    func = _EfficientConv2d(
         storage=storage,
         stride=1,
         padding=1,
@@ -58,7 +58,7 @@ def test_backward_computes_backward_pass():
     weight_grad = weight_var.grad.data
 
     storage = torch.Storage(4 * 8 * 3 * 3).cuda()
-    func = EfficientConv2d(
+    func = _EfficientConv2d(
         storage=storage,
         stride=1,
         padding=1,
