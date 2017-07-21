@@ -61,14 +61,14 @@ def test_forward_training_false_computes_forward_pass():
     bn_bias = torch.randn(8).cuda()
     bn_running_mean = torch.randn(8).cuda()
     bn_running_var = torch.randn(8).abs().cuda()
-    conv_weight = torch.randn(4, 8, 3, 3).cuda()
+    conv_weight = torch.randn(4, 8, 1, 1).cuda()
     input_1 = torch.randn(4, 6, 4, 4).cuda()
     input_2 = torch.randn(4, 2, 4, 4).cuda()
 
     layer = nn.Sequential(OrderedDict([
         ('norm', nn.BatchNorm2d(8)),
         ('relu', nn.ReLU(inplace=True)),
-        ('conv', nn.Conv2d(8, 4, bias=None, kernel_size=3, stride=1, padding=1)),
+        ('conv', nn.Conv2d(8, 4, bias=None, kernel_size=1, stride=1)),
     ])).cuda()
     layer.train()
     layer.norm.weight.data.copy_(bn_weight)
@@ -107,14 +107,14 @@ def test_backward_computes_backward_pass():
     bn_bias = torch.randn(8).cuda()
     bn_running_mean = torch.randn(8).cuda()
     bn_running_var = torch.randn(8).abs().cuda()
-    conv_weight = torch.randn(4, 8, 3, 3).cuda()
+    conv_weight = torch.randn(4, 8, 1, 1).cuda()
     input_1 = torch.randn(4, 6, 4, 4).cuda()
     input_2 = torch.randn(4, 2, 4, 4).cuda()
 
     layer = nn.Sequential(OrderedDict([
         ('norm', nn.BatchNorm2d(8)),
         ('relu', nn.ReLU(inplace=True)),
-        ('conv', nn.Conv2d(8, 4, bias=None, kernel_size=3, stride=1, padding=1)),
+        ('conv', nn.Conv2d(8, 4, bias=None, kernel_size=1, stride=1)),
     ])).cuda()
     layer.train()
     layer.norm.weight.data.copy_(bn_weight)
