@@ -13,6 +13,7 @@ from torch.backends import cudnn
 
 
 # I'm throwing all the gross code at the end of the file :)
+# Let's start with the nice (and interesting) stuff
 
 
 class _SharedAllocation(object):
@@ -231,7 +232,7 @@ class _EfficientDensenetBottleneckFn(Function):
         self.efficient_batch_norm = _EfficientBatchNorm(shared_allocation_1.storage, running_mean, running_var,
                 training, momentum, eps)
         self.efficient_relu = _EfficientReLU()
-        self.efficient_conv = _EfficientConv2d(shared_allocation_2.storage, stride, padding, dilation, groups)
+        self.efficient_conv = _EfficientConv2d(stride, padding, dilation, groups)
 
         # Buffers to store old versions of bn statistics
         self.prev_running_mean = self.efficient_batch_norm.running_mean.new()
@@ -412,8 +413,7 @@ class _EfficientReLU(object):
 
 
 class _EfficientConv2d(object):
-    def __init__(self, storage, stride=1, padding=0, dilation=1, groups=1):
-        self.storage = storage
+    def __init__(self, stride=1, padding=0, dilation=1, groups=1):
         self.stride = stride
         self.padding = padding
         self.dilation = dilation
@@ -451,7 +451,7 @@ class _EfficientConv2d(object):
         return res
 
     def backward(self, weight, bias, input, grad_output):
-        grad_input = type(input)(self.storage)
+        grad_input = input.new()
         grad_input.resize_as_(input)
 	torch._C._cudnn_convolution_backward_data(
 	    grad_output, grad_input, weight, self._cudnn_info,

@@ -24,9 +24,7 @@ def test_forward_computes_forward_pass():
         groups=1,
     ).data
 
-    storage = torch.Storage(4 * 8 * 3 * 3).cuda()
     func = _EfficientConv2d(
-        storage=storage,
         stride=1,
         padding=1,
         dilation=1,
@@ -57,9 +55,7 @@ def test_backward_computes_backward_pass():
     input_grad = input_var.grad.data
     weight_grad = weight_var.grad.data
 
-    storage = torch.Storage(4 * 8 * 3 * 3).cuda()
     func = _EfficientConv2d(
-        storage=storage,
         stride=1,
         padding=1,
         dilation=1,
@@ -70,6 +66,5 @@ def test_backward_computes_backward_pass():
             weight, None, input, input.clone().fill_(1))
 
     assert(almost_equal(out, out_efficient))
-    assert(input_grad_efficient.storage().data_ptr() == storage.data_ptr())
     assert(almost_equal(input_grad, input_grad_efficient))
     assert(almost_equal(weight_grad, weight_grad_efficient))
