@@ -229,7 +229,7 @@ class _EfficientDensenetBottleneckFn(Function):
             training=False, momentum=0.1, eps=1e-5):
 
         self.efficient_cat = _EfficientCat(shared_allocation_1.storage)
-        self.efficient_batch_norm = _EfficientBatchNorm(shared_allocation_1.storage, running_mean, running_var,
+        self.efficient_batch_norm = _EfficientBatchNorm(shared_allocation_2.storage, running_mean, running_var,
                 training, momentum, eps)
         self.efficient_relu = _EfficientReLU()
         self.efficient_conv = _EfficientConv2d(stride, padding, dilation, groups)
@@ -270,9 +270,9 @@ class _EfficientDensenetBottleneckFn(Function):
         self.efficient_batch_norm.running_mean.copy_(self.prev_running_mean)
         self.efficient_batch_norm.running_var.copy_(self.prev_running_var)
 
-        # Recompute BN
-        bn_input = self.efficient_cat.forward(*self.inputs)
-        bn_output = self.efficient_batch_norm.forward(self.bn_weight, self.bn_bias, bn_input)
+        # Recompute concat and BN
+        cat_output = self.efficient_cat.forward(*self.inputs)
+        bn_output = self.efficient_batch_norm.forward(self.bn_weight, self.bn_bias, cat_output)
         relu_output = self.efficient_relu.forward(bn_output)
 
         # Conv backward
@@ -283,11 +283,10 @@ class _EfficientDensenetBottleneckFn(Function):
         relu_grad_output = self.efficient_relu.backward(bn_output, conv_grad_output)
 
         # BN backward
-        bn_input = self.efficient_cat.forward(*self.inputs)
         self.efficient_batch_norm.running_mean.copy_(self.curr_running_mean)
         self.efficient_batch_norm.running_var.copy_(self.curr_running_var)
         bn_weight_grad, bn_bias_grad, bn_grad_output = self.efficient_batch_norm.backward(
-                self.bn_weight, self.bn_bias, bn_input, relu_grad_output)
+                self.bn_weight, self.bn_bias, cat_output, relu_grad_output)
 
         # Input backward
         grad_inputs = self.efficient_cat.backward(bn_grad_output)
