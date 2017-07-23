@@ -46,8 +46,8 @@ A comparison of the two implementations (each is a DenseNet-BC with 100 layers, 
 
 | Implementation | Memory cosumption (GB) | Speed (sec/mini batch) |
 |----------------|------------------------|------------------------|
-| Naive          |                        | 0.165                  |
-| Efficient      |                        | 0.207                  |
+| Naive          |  2.863  | 0.165                  |
+| Efficient      |  1.605  | 0.207                  |
 
 ## Other efficient implementations
 - [LuaTorch](https://github.com/liuzhuang13/DenseNet/tree/master/models) (by Gao Huang)
