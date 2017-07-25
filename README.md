@@ -14,7 +14,7 @@ which are utilized by every Batch Norm and concatenation operation.
 Because the data in these allocations are temporary, we re-populate the outputs during back-propagation.
 This adds 15-20% of time overhead for training, but **reduces feature map consumption from quadratic to linear.**
 
-For more details, please see the [technical report](https://github.com/liuzhuang13/DenseNet/blob/master/efficient_densenet_techreport.pdf) (soon to be on ArXiV).
+For more details, please see the [technical report](https://arxiv.org/pdf/1707.06990.pdf).
 
 ![Diagram of implementation](https://raw.github.com/gpleiss/efficient_densenet_pytorch/master/images/forward.png)
 
@@ -30,7 +30,7 @@ They work as stand-alone files.
 
 **Running the demo:**
 ```sh
-python demo.py --efficient True --data <path_to_data_dir> --save <path_to_save_dir>
+python2 demo.py --efficient True --data <path_to_data_dir> --save <path_to_save_dir>
 ```
 
 Options:
