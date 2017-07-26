@@ -1,2 +1,2 @@
-from densenet import DenseNet
-from densenet_efficient import DenseNetEfficient
+from .densenet import DenseNet
+from .densenet_efficient import DenseNetEfficient

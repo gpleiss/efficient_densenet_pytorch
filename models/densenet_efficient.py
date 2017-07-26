@@ -5,6 +5,7 @@ import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from functools import reduce
 from operator import mul
 from collections import OrderedDict
 from torch.autograd import Variable, Function
