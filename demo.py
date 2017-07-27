@@ -6,7 +6,7 @@ import torchvision as tv
 from torch import nn, optim
 from torch.autograd import Variable
 from torch.utils.data.sampler import SubsetRandomSampler
-from models import DenseNet, DenseNetEfficient
+from models import DenseNet, DenseNetEfficient, DenseNetEfficientMulti
 
 
 class Meter():
@@ -184,7 +184,7 @@ def train(model, train_set, valid_set, test_set, save, train_size=0, valid_size=
 
 
 def demo(data=os.getenv('DATA_DIR'), save='/tmp', depth=40, growth_rate=12, efficient=True,
-         n_epochs=300, batch_size=256, seed=None):
+         n_epochs=300, batch_size=256, seed=None, multi_gpu=False):
     """
     A demo to show off training of efficient DenseNets.
     Trains and evaluates a DenseNet-BC on CIFAR-10.
@@ -230,6 +230,7 @@ def demo(data=os.getenv('DATA_DIR'), save='/tmp', depth=40, growth_rate=12, effi
 
     # Models
     klass = DenseNetEfficient if efficient else DenseNet
+    klass = DenseNetEfficientMulti if multi_gpu else klass
     model = klass(
         growth_rate=growth_rate,
         block_config=block_config,

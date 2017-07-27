@@ -99,7 +99,6 @@ class _DenseLayer(nn.Sequential):
         self.add_module('conv.2', nn.Conv2d(bn_size * growth_rate, growth_rate,
                         kernel_size=3, stride=1, padding=1, bias=False)),
 
-
     def forward(self, x):
         if isinstance(x, Variable):
             prev_features = [x]

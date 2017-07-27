@@ -29,9 +29,20 @@ Copy either one of those files into your project!
 They work as stand-alone files.
 
 **Running the demo:**
+
+- single GPU:
+
 ```sh
-python2 demo.py --efficient True --data <path_to_data_dir> --save <path_to_save_dir>
+CUDA_VISIBLE_DEVICES=0 python2 demo.py --efficient True --data <path_to_data_dir> --save <path_to_save_dir>
 ```
+
+
+- multi GPU:
+
+```sh
+CUDA_VISIBLE_DEVICES=0,1,2,3 python2 demo.py --multi-gpu True --data <path_to_data_dir> --save <path_to_save_dir>
+```
+
 
 Options:
 - `--depth` (int) - depth of the network (number of convolution layers) (default 40)
