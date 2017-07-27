@@ -26,6 +26,7 @@ There are two files in the `models` folder.
 [project killer](https://github.com/felixgwu/img_classification_pk_pytorch/blob/master/models/densenet.py) implementations.
  - `models/densenet_efficient.py` is the new efficient implementation. (Code is still a little ugly. We're working on cleaning it up!)
 Copy either one of those files into your project!
+ - `models/densenet_efficient.py` is the new efficient implementation with multi-GPU support.
 They work as stand-alone files.
 
 **Running the demo:**
@@ -37,7 +38,7 @@ CUDA_VISIBLE_DEVICES=0 python2 demo.py --efficient True --data <path_to_data_dir
 ```
 
 
-- multi GPU:
+- multi GPUs:
 
 ```sh
 CUDA_VISIBLE_DEVICES=0,1,2,3 python2 demo.py --multi-gpu True --data <path_to_data_dir> --save <path_to_save_dir>
@@ -55,10 +56,12 @@ Options:
 
 A comparison of the two implementations (each is a DenseNet-BC with 100 layers, batch size 64, tested on a NVIDIA Pascal Titan-X):
 
-| Implementation | Memory cosumption (GB) | Speed (sec/mini batch) |
+| Implementation | Memory cosumption (GB/GPU) | Speed (sec/mini batch) |
 |----------------|------------------------|------------------------|
 | Naive          |  2.863  | 0.165                  |
 | Efficient      |  1.605  | 0.207                  |
+| Efficient (multi-GPU)      |  0.985  | -                  |
+
 
 ## Other efficient implementations
 - [LuaTorch](https://github.com/liuzhuang13/DenseNet/tree/master/models) (by Gao Huang)
