@@ -305,19 +305,6 @@ class _EfficientBatchNorm(object):
                 self.eps)
         return res
 
-    def recompute_forward(self, weight, bias, input):
-        # Do forward pass - store in input variable
-        cur_device_id = input.get_device()
-        res = type(input)(self.storage.change_device(cur_device_id)).resize_as_(input)
-
-        torch._C._cudnn_batch_norm_forward(input, res,
-                weight, bias,
-                self.running_mean, self.running_var,
-                self.save_mean, self.save_var,
-                self.training, self.momentum, self.eps)
-
-        return res
-
     def backward(self, weight, bias, input, grad_output):
         # Create grad variables
         grad_weight = weight.new()
