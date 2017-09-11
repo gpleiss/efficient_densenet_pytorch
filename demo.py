@@ -144,7 +144,7 @@ def train(model, train_set, valid_set, test_set, save, train_size=0, valid_size=
         batch_size=batch_size,
     )
     criterion = nn.CrossEntropyLoss()
-    optimizer = optim.SGD(model.parameters(), lr=lr, momentum=momentum, nesterov=True)
+    optimizer = optim.SGD(model.parameters(), lr=lr, momentum=momentum, nesterov=True, weight_decay=wd)
 
     # Wrap model if multiple gpus
     if torch.cuda.device_count() > 1:
