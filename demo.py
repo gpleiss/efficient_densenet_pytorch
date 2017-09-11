@@ -234,7 +234,8 @@ def demo(data=os.getenv('DATA_DIR'), save='/tmp', depth=40, growth_rate=12, effi
     model = klass(
         growth_rate=growth_rate,
         block_config=block_config,
-        num_classes=10
+        num_classes=10,
+        cifar=True
     )
     print(model)
 

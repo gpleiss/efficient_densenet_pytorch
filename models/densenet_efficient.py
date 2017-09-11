@@ -170,17 +170,27 @@ class DenseNetEfficient(nn.Module):
         num_classes (int) - number of classification classes
     """
     def __init__(self, growth_rate=12, block_config=(16, 16, 16), compression=0.5,
-                 num_init_features=24, bn_size=4, drop_rate=0, avgpool_size=8,
-                 num_classes=10):
+                 num_init_features=24, bn_size=4, drop_rate=0,
+                 num_classes=10, cifar=True):
 
         super(DenseNetEfficient, self).__init__()
         assert 0 < compression <= 1, 'compression of densenet should be between 0 and 1'
-        self.avgpool_size = avgpool_size
+        self.avgpool_size = 8 if cifar else 7
 
         # First convolution
-        self.features = nn.Sequential(OrderedDict([
-            ('conv0', nn.Conv2d(3, num_init_features, kernel_size=3, stride=1, padding=1, bias=False)),
-        ]))
+        if cifar:
+            self.features = nn.Sequential(OrderedDict([
+                ('conv0', nn.Conv2d(3, num_init_features, kernel_size=3, stride=1, padding=1, bias=False)),
+            ]))
+        else:
+            self.features = nn.Sequential(OrderedDict([
+                ('conv0', nn.Conv2d(3, num_init_features, kernel_size=7, stride=2, padding=3, bias=False)),
+            ]))
+            self.features.add_module('norm0', nn.BatchNorm2d(num_init_features))
+            self.features.add_module('relu0', nn.ReLU(inplace=True))
+            self.features.add_module('pool0', nn.MaxPool2d(kernel_size=3, stride=2, padding=1,
+                                                           ceil_mode=False))
+
 
         # Each denseblock
         num_features = num_init_features
@@ -326,6 +336,17 @@ class _EfficientBatchNorm(object):
         self.save_var = self.running_var.new()
         self.save_var.resize_as_(self.running_var)
 
+        # Do forward pass - store in input variable
+        res = type(input)(self.storage)
+        res.resize_as_(input)
+        torch._C._cudnn_batch_norm_forward(
+            input, res, weight, bias, self.running_mean, self.running_var,
+            self.save_mean, self.save_var, self.training, self.momentum, self.eps
+        )
+
+        return res
+
+    def recompute_forward(self, weight, bias, input):
         # Do forward pass - store in input variable
         res = type(input)(self.storage)
         res.resize_as_(input)
