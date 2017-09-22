@@ -2,7 +2,7 @@ from __future__ import print_function
 import math
 import torch
 from torch.autograd import Function, Variable
-from torch.nn import Parameter, Module
+from torch.nn import Parameter, Module, Sequential
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.backends.cudnn as cudnn
@@ -90,7 +90,7 @@ class EfficientDensenetBottleneck(Module):
         return fn(self.norm_weight, self.norm_bias, self.conv_weight, *inputs)
 
 
-class _DenseLayer(Module):
+class _DenseLayer(Sequential):
     def __init__(self, shared_alloc, num_input_features, growth_rate, bn_size, drop_rate):
         super(_DenseLayer, self).__init__()
         self.shared_alloc = shared_alloc
@@ -98,29 +98,24 @@ class _DenseLayer(Module):
         self.bn_size = bn_size
 
         if bn_size > 0:
-            self.efficient = EfficientDensenetBottleneck(shared_alloc,
-                                                         num_input_features, bn_size * growth_rate)
-            self.bn = nn.BatchNorm2d(bn_size * growth_rate)
-            self.relu = nn.ReLU(inplace=True)
-            self.conv = nn.Conv2d(bn_size * growth_rate, growth_rate,
-                            kernel_size=3, stride=1, padding=1, bias=False)
+            self.add_module('bn', EfficientDensenetBottleneck(
+                shared_alloc, num_input_features, bn_size * growth_rate))
+            self.add_module('norm.2', nn.BatchNorm2d(bn_size * growth_rate))
+            self.add_module('relu.2', nn.ReLU(inplace=True))
+            self.add_module('conv.2', nn.Conv2d(bn_size * growth_rate, growth_rate,
+                                                kernel_size=3, stride=1, padding=1, bias=False))
         else:
-            self.efficient = EfficientDensenetBottleneck(shared_alloc,
-                                                         num_input_features, growth_rate)
-            self.conv1 = nn.Conv2d(num_input_features, growth_rate,
-                            kernel_size=3, stride=1, padding=1, bias=False)
+            self.add_module('bn', EfficientDensenetBottleneck(
+                shared_alloc, num_input_features, bn_size * growth_rate))
+            self.add_module('conv.2', nn.Conv2d(
+                num_input_features, growth_rate, kernel_size=3, stride=1, padding=1, bias=False))
 
     def forward(self, x):
         if isinstance(x, Variable):
             prev_features = [x]
         else:
             prev_features = x
-        out = self.efficient(prev_features)
-        # out = self.conv1(out)
-        if self.bn_size > 0:
-            out = self.bn(out)
-            out = self.relu(out)
-            out = self.conv(out)
+        out = super(_DenseLayer, self).forward(prev_features)
         return out
 
 
@@ -156,17 +151,17 @@ class _DenseBlock(Module):
         return torch.cat(outputs, dim=1)
 
 
-class TransitionBlock(nn.Module):
+class TransitionBlock(Sequential):
     def __init__(self, in_planes, out_planes, dropRate=0.0):
         super(TransitionBlock, self).__init__()
-        self.bn1 = nn.BatchNorm2d(in_planes)
-        self.relu = nn.ReLU(inplace=True)
-        self.conv1 = nn.Conv2d(in_planes, out_planes, kernel_size=1, stride=1,
-                               padding=0, bias=False)
+        self.add_module('norm', nn.BatchNorm2d(in_planes))
+        self.add_module('relu', nn.ReLU(inplace=True))
+        self.add_module('conv', nn.Conv2d(
+            in_planes, out_planes, kernel_size=1, stride=1, padding=0, bias=False))
         self.droprate = dropRate
 
     def forward(self, x):
-        out = self.conv1(self.relu(self.bn1(x)))
+        out = super(TransitionBlock, self).forward(x)
         if self.droprate > 0:
             out = F.dropout(out, p=self.droprate, inplace=False, training=self.training)
         return F.avg_pool2d(out, 2)
@@ -189,17 +184,26 @@ class DenseNetEfficientMulti(Module):
         num_classes (int) - number of classification classes
     """
     def __init__(self, growth_rate=12, block_config=(16, 16, 16), compression=0.5,
-                 num_init_features=24, bn_size=4, drop_rate=0., avgpool_size=8,
-                 num_classes=10):
+                 num_init_features=24, bn_size=4, drop_rate=0.,
+                 num_classes=10, cifar=True):
 
         super(DenseNetEfficientMulti, self).__init__()
         assert 0 < compression <= 1, 'compression of densenet should be between '
-        self.avgpool_size = avgpool_size
+        self.avgpool_size = 8 if cifar else 7
 
         # First convolution
-        self.features = nn.Sequential(OrderedDict([
-            ('conv0', nn.Conv2d(3, num_init_features, kernel_size=3, stride=1, padding=1, bias=False)),
-        ]))
+        if cifar:
+            self.features = nn.Sequential(OrderedDict([
+                ('conv0', nn.Conv2d(3, num_init_features, kernel_size=3, stride=1, padding=1, bias=False)),
+            ]))
+        else:
+            self.features = nn.Sequential(OrderedDict([
+                ('conv0', nn.Conv2d(3, num_init_features, kernel_size=7, stride=2, padding=3, bias=False)),
+            ]))
+            self.features.add_module('norm0', nn.BatchNorm2d(num_init_features))
+            self.features.add_module('relu0', nn.ReLU(inplace=True))
+            self.features.add_module('pool0', nn.MaxPool2d(kernel_size=3, stride=2, padding=1,
+                                                           ceil_mode=False))
 
         # Each dense block
         storage = create_multi_gpu_storage()
@@ -209,13 +213,13 @@ class DenseNetEfficientMulti(Module):
                                 num_input_features=num_features,
                                 bn_size=bn_size, growth_rate=growth_rate,
                                 drop_rate=drop_rate, storage=storage)
-            self.features.add_module('denseblock_%d' % (i + 1), block)
+            self.features.add_module('denseblock%d' % (i + 1), block)
             num_features = num_features + num_layers * growth_rate
             if i != len(block_config) - 1:
                 trans = TransitionBlock(in_planes=num_features,
                                     out_planes=int(num_features * compression),
                                         dropRate=drop_rate)
-                self.features.add_module('transition_%d' % (i + 1), trans)
+                self.features.add_module('transition%d' % (i + 1), trans)
                 num_features = int(num_features * compression)
 
         # Final batch norm
@@ -303,6 +307,19 @@ class _EfficientBatchNorm(object):
                 self.training,
                 self.momentum,
                 self.eps)
+        return res
+
+    def recompute_forward(self, weight, bias, input):
+        # Do forward pass - store in input variable
+        cur_device_id = input.get_device()
+        res = type(input)(self.storage.change_device(cur_device_id)).resize_as_(input)
+
+        torch._C._cudnn_batch_norm_forward(input, res,
+                weight, bias,
+                self.running_mean, self.running_var,
+                self.save_mean, self.save_var,
+                self.training, self.momentum, self.eps)
+
         return res
 
     def backward(self, weight, bias, input, grad_output):
