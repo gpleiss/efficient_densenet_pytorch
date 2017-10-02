@@ -20,13 +20,19 @@ For more details, please see the [technical report](https://arxiv.org/pdf/1707.0
 
 ## Usage
 
+**Note: this demo is currently only compatible with PyTorch v0.1.12.**
+
+- To downgrade PyTorch from v0.2 or higher, please refer to this [instruction](https://discuss.pytorch.org/t/could-i-downgrade-pytorch-or-should-i-do-something-more-after-upgrading/1617/4).
+
+- For v0.2, please trace this [issue](https://github.com/gpleiss/efficient_densenet_pytorch/issues/11).
+
 **In your existing project:**
 There are two files in the `models` folder.
  - `models/densenet.py` is a "naive" implementation, based off the [torchvision](https://github.com/pytorch/vision/blob/master/torchvision/models/densenet.py) and
 [project killer](https://github.com/felixgwu/img_classification_pk_pytorch/blob/master/models/densenet.py) implementations.
  - `models/densenet_efficient.py` is the new efficient implementation. (Code is still a little ugly. We're working on cleaning it up!)
 Copy either one of those files into your project!
- - `models/densenet_efficient.py` is the new efficient implementation with multi-GPU support.
+ - `models/densenet_efficient_multi_gpu.py` is the new efficient implementation with multi-GPU support.
 They work as stand-alone files.
 
 **Running the demo:**
@@ -34,14 +40,14 @@ They work as stand-alone files.
 - single GPU:
 
 ```sh
-CUDA_VISIBLE_DEVICES=0 python2 demo.py --efficient True --data <path_to_data_dir> --save <path_to_save_dir>
+CUDA_VISIBLE_DEVICES=0 python demo.py --efficient True --data <path_to_data_dir> --save <path_to_save_dir>
 ```
 
 
 - multi GPUs:
 
 ```sh
-CUDA_VISIBLE_DEVICES=0,1,2,3 python2 demo.py --multi-gpu True --data <path_to_data_dir> --save <path_to_save_dir>
+CUDA_VISIBLE_DEVICES=0,1,2,3 python demo.py --multi-gpu True --data <path_to_data_dir> --save <path_to_save_dir>
 ```
 
 
