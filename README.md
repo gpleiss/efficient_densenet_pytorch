@@ -20,11 +20,15 @@ For more details, please see the [technical report](https://arxiv.org/pdf/1707.0
 
 ## Usage
 
-**Note: this demo is currently only compatible with PyTorch v0.1.12.**
+**Note:**
+
+This demo was initially developed on PyTorch v0.1.12. And for some (unknown) reasons,
+it cannot pass all the unit tests on PyTorch v0.2, but the performance (final accuracy) still remains **the same** :).
+
+- If you would like to help us improve it on v0.2, please trace this [issue](https://github.com/gpleiss/efficient_densenet_pytorch/issues/11).
 
 - To downgrade PyTorch from v0.2 or higher, please refer to this [instruction](https://discuss.pytorch.org/t/could-i-downgrade-pytorch-or-should-i-do-something-more-after-upgrading/1617/4).
 
-- For v0.2, please trace this [issue](https://github.com/gpleiss/efficient_densenet_pytorch/issues/11).
 
 **In your existing project:**
 There are two files in the `models` folder.
