@@ -25,7 +25,7 @@ For more details, please see the [technical report](https://arxiv.org/pdf/1707.0
 This demo was initially developed on PyTorch v0.1.12. And for some (unknown) reasons,
 it cannot pass all the unit tests on PyTorch v0.2, but the performance (final accuracy) still remains **the same** :).
 
-- If you would like to help us improve it on v0.2, please trace this [issue](https://github.com/gpleiss/efficient_densenet_pytorch/issues/11).
+- If you would like to help us improve it on v0.2 or higher version, please trace this [issue](https://github.com/gpleiss/efficient_densenet_pytorch/issues/11).
 
 - To downgrade PyTorch from v0.2 or higher, please refer to this [instruction](https://discuss.pytorch.org/t/could-i-downgrade-pytorch-or-should-i-do-something-more-after-upgrading/1617/4).
 
@@ -77,3 +77,14 @@ A comparison of the two implementations (each is a DenseNet-BC with 100 layers, 
 - [LuaTorch](https://github.com/liuzhuang13/DenseNet/tree/master/models) (by Gao Huang)
 - [MxNet](https://github.com/taineleau/efficient_densenet_mxnet) (by Danlu Chen)
 - [Caffe](https://github.com/Tongcheng/DN_CaffeScript) (by Tongcheng Li)
+
+## Reference
+
+```
+@article{pleiss2017memory,
+  title={Memory-Efficient Implementation of DenseNets},
+  author={Pleiss, Geoff and Chen, Danlu and Huang, Gao and Li, Tongcheng and van der Maaten, Laurens and Weinberger, Kilian Q},
+  journal={arXiv preprint arXiv:1707.06990},
+  year={2017}
+}
+```
