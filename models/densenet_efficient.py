@@ -427,6 +427,7 @@ class _EfficientConv2d(object):
         self.padding = padding
         self.dilation = dilation
         self.groups = groups
+        self.deterministic = True  # should not affect the perf a lot
 
     def _output_size(self, input, weight):
         channels = weight.size(0)
@@ -454,7 +455,7 @@ class _EfficientConv2d(object):
             (self.padding, self.padding),
             (self.stride, self.stride),
             (self.dilation, self.dilation),
-            self.groups, cudnn.benchmark
+            self.groups, cudnn.benchmark, self.deterministic
         )
 
         return res
@@ -464,11 +465,11 @@ class _EfficientConv2d(object):
         grad_input.resize_as_(input)
         torch._C._cudnn_convolution_backward_data(
             grad_output, grad_input, weight, self._cudnn_info,
-            cudnn.benchmark)
+            cudnn.benchmark, self.deterministic)
 
         grad_weight = weight.new().resize_as_(weight)
         torch._C._cudnn_convolution_backward_filter(grad_output, input, grad_weight, self._cudnn_info,
-                                                    cudnn.benchmark)
+                                                    cudnn.benchmark, self.deterministic)
 
         if bias is not None:
             grad_bias = bias.new().resize_as_(bias)
