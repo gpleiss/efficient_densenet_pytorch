@@ -52,7 +52,6 @@ class _EfficientDensenetBottleneck(nn.Module):
     is not perminant, these features are recomputed during the backward pass.
     """
     def __init__(self, shared_allocation_1, shared_allocation_2, num_input_channels, num_output_channels):
-
         super(_EfficientDensenetBottleneck, self).__init__()
         self.shared_allocation_1 = shared_allocation_1
         self.shared_allocation_2 = shared_allocation_2
@@ -168,17 +167,18 @@ class DenseNetEfficient(nn.Module):
           (i.e. bn_size * k features in the bottleneck layer)
         drop_rate (float) - dropout rate after each dense layer
         num_classes (int) - number of classification classes
+        small_inputs (bool) - set to True if images are 32x32. Otherwise assumes images are larger.
     """
     def __init__(self, growth_rate=12, block_config=(16, 16, 16), compression=0.5,
                  num_init_features=24, bn_size=4, drop_rate=0,
-                 num_classes=10, cifar=True):
+                 num_classes=10, small_inputs=True):
 
         super(DenseNetEfficient, self).__init__()
         assert 0 < compression <= 1, 'compression of densenet should be between 0 and 1'
-        self.avgpool_size = 8 if cifar else 7
+        self.avgpool_size = 8 if small_inputs else 7
 
         # First convolution
-        if cifar:
+        if small_inputs:
             self.features = nn.Sequential(OrderedDict([
                 ('conv0', nn.Conv2d(3, num_init_features, kernel_size=3, stride=1, padding=1, bias=False)),
             ]))
@@ -449,8 +449,9 @@ class _EfficientConv2d(object):
                 raise Exception('You must be using CUDNN to use _EfficientBatchNorm')
 
         res = input.new(*self._output_size(input, weight))
+        bias = input.new(weight.size(1))
         self._cudnn_info = torch._C._cudnn_convolution_full_forward(
-            input, weight, bias, res,
+            input.double(), weight.double(), bias.double(), res.double(),
             (self.padding, self.padding),
             (self.stride, self.stride),
             (self.dilation, self.dilation),

@@ -56,19 +56,29 @@ class DenseNet(nn.Module):
             (i.e. bn_size * k features in the bottleneck layer)
         drop_rate (float) - dropout rate after each dense layer
         num_classes (int) - number of classification classes
+        small_inputs (bool) - set to True if images are 32x32. Otherwise assumes images are larger.
     """
     def __init__(self, growth_rate=12, block_config=(16, 16, 16), compression=0.5,
-                 num_init_features=24, bn_size=4, drop_rate=0, avgpool_size=8,
-                 num_classes=10):
+                 num_init_features=24, bn_size=4, drop_rate=0,
+                 num_classes=10, small_inputs=True):
 
         super(DenseNet, self).__init__()
         assert 0 < compression <= 1, 'compression of densenet should be between 0 and 1'
-        self.avgpool_size = avgpool_size
+        self.avgpool_size = 8 if small_inputs else 7
 
         # First convolution
-        self.features = nn.Sequential(OrderedDict([
-            ('conv0', nn.Conv2d(3, num_init_features, kernel_size=3, stride=1, padding=1, bias=False)),
-        ]))
+        if small_inputs:
+            self.features = nn.Sequential(OrderedDict([
+                ('conv0', nn.Conv2d(3, num_init_features, kernel_size=3, stride=1, padding=1, bias=False)),
+            ]))
+        else:
+            self.features = nn.Sequential(OrderedDict([
+                ('conv0', nn.Conv2d(3, num_init_features, kernel_size=7, stride=2, padding=3, bias=False)),
+            ]))
+            self.features.add_module('norm0', nn.BatchNorm2d(num_init_features))
+            self.features.add_module('relu0', nn.ReLU(inplace=True))
+            self.features.add_module('pool0', nn.MaxPool2d(kernel_size=3, stride=2, padding=1,
+                                                           ceil_mode=False))
 
         # Each denseblock
         num_features = num_init_features

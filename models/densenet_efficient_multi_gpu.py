@@ -394,7 +394,7 @@ class _EfficientConv2d(object):
 
         res = input.new(*self._output_size(input, weight))
         self._cudnn_info = torch._C._cudnn_convolution_full_forward(
-            input, weight, bias, res,
+            input.double(), weight.double(), bias.double(), res.double(),
             (self.padding, self.padding),
             (self.stride, self.stride),
             (self.dilation, self.dilation),

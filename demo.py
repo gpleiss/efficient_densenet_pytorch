@@ -2,188 +2,203 @@ import fire
 import os
 import time
 import torch
-import torchvision as tv
-from torch import nn, optim
-from torch.autograd import Variable
-from torch.utils.data.sampler import SubsetRandomSampler
-from models import DenseNet, DenseNetEfficient, DenseNetEfficientMulti
+from torchvision import datasets, transforms
+from models import DenseNet, DenseNetEfficient
 
 
-class Meter():
+class AverageMeter(object):
     """
-    A little helper class which keeps track of statistics during an epoch.
+    Computes and stores the average and current value
+    Copied from: https://github.com/pytorch/examples/blob/master/imagenet/main.py
     """
-    def __init__(self, name, cum=False):
-        self.cum = cum
-        if type(name) == str:
-            name = (name,)
-        self.name = name
+    def __init__(self):
+        self.reset()
 
-        self._total = torch.zeros(len(self.name))
-        self._last_value = torch.zeros(len(self.name))
-        self._count = 0.0
+    def reset(self):
+        self.val = 0
+        self.avg = 0
+        self.sum = 0
+        self.count = 0
 
-
-    def update(self, data, n=1):
-        self._count = self._count + n
-        if isinstance(data, torch.autograd.Variable):
-            self._last_value.copy_(data.data)
-        elif isinstance(data, torch.Tensor):
-            self._last_value.copy_(data)
-        else:
-            self._last_value.fill_(data)
-        self._total.add_(self._last_value)
+    def update(self, val, n=1):
+        self.val = val
+        self.sum += val * n
+        self.count += n
+        self.avg = self.sum / self.count
 
 
-    def value(self):
-        if self.cum:
-            return self._total
-        else:
-            return self._total / self._count
+def train_epoch(model, loader, optimizer, epoch, n_epochs, print_freq=1):
+    batch_time = AverageMeter()
+    losses = AverageMeter()
+    error = AverageMeter()
 
-
-    def __repr__(self):
-        return '\t'.join(['%s: %.5f (%.3f)' % (n, lv, v)
-            for n, lv, v in zip(self.name, self._last_value, self.value())])
-
-
-def _make_dataloaders(train_set, valid_set, test_set, train_size, valid_size, batch_size):
-    # Split training into train and validation
-    indices = torch.randperm(len(train_set))
-    train_indices = indices[:len(indices)-valid_size][:train_size or None]
-    valid_indices = indices[len(indices)-valid_size:] if valid_size else None
-
-    train_loader = torch.utils.data.DataLoader(train_set, pin_memory=True, batch_size=batch_size,
-                                               sampler=SubsetRandomSampler(train_indices))
-    test_loader = torch.utils.data.DataLoader(test_set, pin_memory=True, batch_size=batch_size)
-    if valid_size:
-        valid_loader = torch.utils.data.DataLoader(valid_set, pin_memory=True, batch_size=batch_size,
-                                                   sampler=SubsetRandomSampler(valid_indices))
-    else:
-        valid_loader = None
-
-    return train_loader, valid_loader, test_loader
-
-
-def _set_lr(optimizer, epoch, n_epochs, lr):
-    lr = lr
-    if float(epoch) / n_epochs > 0.75:
-        lr = lr * 0.01
-    elif float(epoch) / n_epochs > 0.5:
-        lr = lr * 0.1
-
-    for param_group in optimizer.param_groups:
-        param_group['lr'] = lr
-        print(param_group['lr'])
-
-
-def run_epoch(loader, model, criterion, optimizer, epoch=0, n_epochs=0, train=True):
-    time_meter = Meter(name='Time', cum=True)
-    loss_meter = Meter(name='Loss', cum=False)
-    error_meter = Meter(name='Error', cum=False)
-
-    if train:
-        model.train()
-        print('Training')
-    else:
-        model.eval()
-        print('Evaluating')
+    # Model on train mode
+    model.train()
 
     end = time.time()
-    for i, (input, target) in enumerate(loader):
-        if train:
-            model.zero_grad()
-            optimizer.zero_grad()
+    for batch_idx, (input, target) in enumerate(loader):
+        # Create vaiables
+        if torch.cuda.is_available():
+            input_var = torch.autograd.Variable(input.cuda(async=True))
+            target_var = torch.autograd.Variable(target.cuda(async=True))
+        else:
+            input_var = torch.autograd.Variable(input)
+            target_var = torch.autograd.Variable(target)
 
-        # Forward pass
-        input_var = Variable(input, volatile=(not train)).cuda(async=True)
-        target_var = Variable(target, volatile=(not train), requires_grad=False).cuda(async=True)
-        output_var = model(input_var)
-        loss = criterion(output_var, target_var)
+        # compute output
+        output = model(input_var)
+        loss = torch.nn.functional.cross_entropy(output, target_var)
 
-        # Backward pass
-        if train:
-            loss.backward()
-            optimizer.step()
-            optimizer.n_iters = optimizer.n_iters + 1 if hasattr(optimizer, 'n_iters') else 1
+        # measure accuracy and record loss
+        batch_size = target.size(0)
+        _, pred = output.data.cpu().topk(1, dim=1)
+        error.update(torch.ne(pred.squeeze(), target.cpu()).float().sum() / batch_size, batch_size)
+        losses.update(loss.data[0], batch_size)
 
-        # Accounting
-        _, predictions_var = torch.topk(output_var, 1)
-        error = 1 - torch.eq(predictions_var, target_var).float().mean()
-        batch_time = time.time() - end
+        # compute gradient and do SGD step
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+
+        # measure elapsed time
+        batch_time.update(time.time() - end)
         end = time.time()
 
-        # Log errors
-        time_meter.update(batch_time)
-        loss_meter.update(loss)
-        error_meter.update(error)
-        print('  '.join([
-            '%s: (Epoch %d of %d) [%04d/%04d]' % ('Train' if train else 'Eval',
-                epoch, n_epochs, i + 1, len(loader)),
-            str(time_meter),
-            str(loss_meter),
-            str(error_meter),
-        ]))
+        # print stats
+        if batch_idx % print_freq == 0:
+            res = 'Epoch: [%d/%d], Iter: [%d/%d]\tTime %.3f (%.3f)\tLoss %.4f (%.4f)\tErr %.3f (%.3f)' % (
+                epoch + 1, n_epochs,
+                batch_idx + 1, len(loader),
+                batch_time.val, batch_time.avg,
+                losses.val, losses.avg,
+                error.val, error.avg,
+            )
+            print(res)
 
-    return time_meter.value(), loss_meter.value(), error_meter.value()
+    # Return summary statistics
+    return batch_time.avg, losses.avg, error.avg
 
 
-def train(model, train_set, valid_set, test_set, save, train_size=0, valid_size=5000,
-          n_epochs=1, batch_size=64, lr=0.1, wd=0.0001, momentum=0.9, seed=None):
+def test_epoch(model, loader, print_freq=1, is_test=True):
+    batch_time = AverageMeter()
+    losses = AverageMeter()
+    error = AverageMeter()
 
+    # Model on eval mode
+    model.eval()
+
+    end = time.time()
+    for batch_idx, (input, target) in enumerate(loader):
+        # Create vaiables
+        if torch.cuda.is_available():
+            input_var = torch.autograd.Variable(input.cuda(async=True), volatile=True)
+            target_var = torch.autograd.Variable(target.cuda(async=True), volatile=True)
+        else:
+            input_var = torch.autograd.Variable(input, volatile=True)
+            target_var = torch.autograd.Variable(target, volatile=True)
+
+        # compute output
+        output = model(input_var)
+        loss = torch.nn.functional.cross_entropy(output, target_var)
+
+        # measure accuracy and record loss
+        batch_size = target.size(0)
+        _, pred = output.data.cpu().topk(1, dim=1)
+        error.update(torch.ne(pred.squeeze(), target.cpu()).float().sum() / batch_size, batch_size)
+        losses.update(loss.data[0], batch_size)
+
+        # measure elapsed time
+        batch_time.update(time.time() - end)
+        end = time.time()
+
+        # print stats
+        if batch_idx % print_freq == 0:
+            res = '%s:\tIter: [%d/%d]\tTime %.3f (%.3f)\tLoss %.4f (%.4f)\tErr %.3f (%.3f)' % (
+                'Test' if is_test else 'Valid',
+                batch_idx + 1, len(loader),
+                batch_time.val, batch_time.avg,
+                losses.val, losses.avg,
+                error.val, error.avg,
+            )
+            print(res)
+
+    # Return summary statistics
+    return batch_time.avg, losses.avg, error.avg
+
+
+def train(model, train_set, test_set, save, n_epochs=300, valid_size=5000,
+          batch_size=64, lr=0.1, wd=0.0001, momentum=0.9, seed=None):
     if seed is not None:
         torch.manual_seed(seed)
 
-    # Make model, criterion, optimizer, data loaders
-    train_loader, valid_loader, test_loader = _make_dataloaders(
-        train_set=train_set,
-        valid_set=valid_set,
-        test_set=test_set,
-        train_size=train_size,
-        valid_size=valid_size,
-        batch_size=batch_size,
-    )
-    criterion = nn.CrossEntropyLoss()
-    optimizer = optim.SGD(model.parameters(), lr=lr, momentum=momentum, nesterov=True, weight_decay=wd)
+    # Create train/valid split
+    if valid_size:
+        indices = torch.randperm(len(train_set))
+        train_indices = indices[:len(indices) - valid_size]
+        train_sampler = torch.utils.data.sampler.SubsetRandomSampler(train_indices)
+        valid_indices = indices[len(indices) - valid_size:]
+        valid_sampler = torch.utils.data.sampler.SubsetRandomSampler(valid_indices)
 
-    # Wrap model if multiple gpus
-    if torch.cuda.device_count() > 1:
-        model_wrapper = torch.nn.DataParallel(model).cuda()
+    # Data loaders
+    test_loader = torch.utils.data.DataLoader(test_set, batch_size=batch_size, shuffle=False,
+                                              pin_memory=(torch.cuda.is_available()), num_workers=0)
+    if valid_size:
+        train_loader = torch.utils.data.DataLoader(train_set, batch_size=batch_size, sampler=train_sampler,
+                                                   pin_memory=(torch.cuda.is_available()), num_workers=0)
+        valid_loader = torch.utils.data.DataLoader(train_set, batch_size=batch_size, sampler=valid_sampler,
+                                                   pin_memory=(torch.cuda.is_available()), num_workers=0)
     else:
-        model_wrapper = model.cuda()
+        train_loader = torch.utils.data.DataLoader(train_set, batch_size=batch_size, shuffle=True,
+                                                   pin_memory=(torch.cuda.is_available()), num_workers=0)
+        valid_loader = None
+
+    # Model on cuda
+    if torch.cuda.is_available():
+        model = model.cuda()
+
+    # Optimizer
+    optimizer = torch.optim.SGD(model.parameters(), lr=lr, momentum=momentum, nesterov=True, weight_decay=wd)
+    scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[0.5 * n_epochs, 0.75 * n_epochs],
+                                                     gamma=0.1)
 
     # Train model
     best_error = 1
-    for epoch in range(1, n_epochs + 1):
-        _set_lr(optimizer, epoch, n_epochs, lr)
-        train_results = run_epoch(
+    for epoch in range(n_epochs):
+        scheduler.step()
+        train_results = train_epoch(
+            model=model,
             loader=train_loader,
-            model=model_wrapper,
-            criterion=criterion,
             optimizer=optimizer,
             epoch=epoch,
             n_epochs=n_epochs,
-            train=True,
         )
-        valid_results = run_epoch(
-            loader=valid_loader,
-            model=model_wrapper,
-            criterion=criterion,
-            optimizer=optimizer,
-            epoch=epoch,
-            n_epochs=n_epochs,
-            train=False,
+        valid_results = test_epoch(
+            model=model,
+            loader=valid_loader if valid_loader else test_loader,
+            is_test=(not valid_loader)
         )
 
         # Determine if model is the best
         _, _, valid_error = valid_results
-        if valid_error[0] < best_error:
-            best_error = valid_error[0]
+        if valid_loader and valid_error < best_error:
+            best_error = valid_error
             print('New best error: %.4f' % best_error)
-            torch.save(model.state_dict(), os.path.join(save, 'model.t7'))
+            torch.save(model.state_dict(), os.path.join(save, 'model.dat'))
+        else:
+            torch.save(model.state_dict(), os.path.join(save, 'model.dat'))
+
+    # Final test of model on test set
+    model.load_state_dict(torch.load(os.path.join(save, 'model.dat')))
+    test_results = test_epoch(
+        model=model,
+        loader=test_loader,
+        is_test=True
+    )
+    _, _, test_error = test_results
+    print('Final test error: %.4f' % test_error)
 
 
-def demo(data=os.getenv('DATA_DIR'), save='/tmp', depth=40, growth_rate=12, efficient=True,
+def demo(data, save, depth=40, growth_rate=12, efficient=True, valid_size=5000,
          n_epochs=300, batch_size=256, seed=None, multi_gpu=False):
     """
     A demo to show off training of efficient DenseNets.
@@ -198,6 +213,7 @@ def demo(data=os.getenv('DATA_DIR'), save='/tmp', depth=40, growth_rate=12, effi
         growth_rate (int) - number of features added per DenseNet layer (default 12)
         efficient (bool) - use the memory efficient implementation? (default True)
 
+        valid_size (int) - size of validation set
         n_epochs (int) - number of epochs for training (default 300)
         batch_size (int) - size of minibatch (default 256)
         seed (int) - manually set the random seed (default None)
@@ -211,31 +227,28 @@ def demo(data=os.getenv('DATA_DIR'), save='/tmp', depth=40, growth_rate=12, effi
     # Data transforms
     mean = [0.5071, 0.4867, 0.4408]
     stdv = [0.2675, 0.2565, 0.2761]
-    train_transforms = tv.transforms.Compose([
-        tv.transforms.RandomCrop(32, padding=4),
-        tv.transforms.RandomHorizontalFlip(),
-        tv.transforms.ToTensor(),
-        tv.transforms.Normalize(mean=mean, std=stdv),
+    train_transforms = transforms.Compose([
+        transforms.RandomCrop(32, padding=4),
+        transforms.RandomHorizontalFlip(),
+        transforms.ToTensor(),
+        transforms.Normalize(mean=mean, std=stdv),
     ])
-    test_transforms = tv.transforms.Compose([
-        tv.transforms.ToTensor(),
-        tv.transforms.Normalize(mean=mean, std=stdv),
+    test_transforms = transforms.Compose([
+        transforms.ToTensor(),
+        transforms.Normalize(mean=mean, std=stdv),
     ])
 
     # Datasets
-    data_root = os.path.join(data, 'cifar10')
-    train_set = tv.datasets.CIFAR10(data_root, train=True, transform=train_transforms, download=True)
-    valid_set = tv.datasets.CIFAR10(data_root, train=True, transform=test_transforms, download=False)
-    test_set = tv.datasets.CIFAR10(data_root, train=False, transform=test_transforms, download=False)
+    train_set = datasets.CIFAR10(data, train=True, transform=train_transforms, download=True)
+    test_set = datasets.CIFAR10(data, train=False, transform=test_transforms, download=False)
 
     # Models
     klass = DenseNetEfficient if efficient else DenseNet
-    klass = DenseNetEfficientMulti if multi_gpu else klass
     model = klass(
         growth_rate=growth_rate,
         block_config=block_config,
         num_classes=10,
-        cifar=True
+        small_inputs=True
     )
     print(model)
 
@@ -246,8 +259,8 @@ def demo(data=os.getenv('DATA_DIR'), save='/tmp', depth=40, growth_rate=12, effi
         raise Exception('%s is not a dir' % save)
 
     # Train the model
-    train(model=model, train_set=train_set, valid_set=valid_set, test_set=test_set, save=save,
-          n_epochs=n_epochs, batch_size=batch_size, seed=seed)
+    train(model=model, train_set=train_set, test_set=test_set, save=save,
+          valid_size=valid_size, n_epochs=n_epochs, batch_size=batch_size, seed=seed)
     print('Done!')
 
 
