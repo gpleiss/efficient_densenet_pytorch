@@ -9,8 +9,6 @@ from functools import reduce
 from operator import mul
 from collections import OrderedDict
 from torch.autograd import Variable, Function
-from torch._thnn import type2backend
-from torch.backends import cudnn
 
 
 # I'm throwing all the gross code at the end of the file :)
@@ -64,7 +62,6 @@ class _EfficientDensenetBottleneck(nn.Module):
         self.conv_weight = nn.Parameter(torch.Tensor(num_output_channels, num_input_channels, 1, 1))
         self._reset_parameters()
 
-
     def _reset_parameters(self):
         self.norm_running_mean.zero_()
         self.norm_running_var.fill_(1)
@@ -73,15 +70,16 @@ class _EfficientDensenetBottleneck(nn.Module):
         stdv = 1. / math.sqrt(self.num_input_channels)
         self.conv_weight.data.uniform_(-stdv, stdv)
 
-
     def forward(self, inputs):
         if isinstance(inputs, Variable):
             inputs = [inputs]
         fn = _EfficientDensenetBottleneckFn(self.shared_allocation_1, self.shared_allocation_2,
                                             self.norm_running_mean, self.norm_running_var,
-                                            stride=1, padding=0, dilation=1, groups=1,
                                             training=self.training, momentum=0.1, eps=1e-5)
-        return fn(self.norm_weight, self.norm_bias, self.conv_weight, *inputs)
+        relu_output = fn(self.norm_weight, self.norm_bias, *inputs)
+        conv_output = F.conv2d(relu_output, self.conv_weight, bias=None, stride=1,
+                               padding=0, dilation=1, groups=1)
+        return conv_output
 
 
 class _DenseLayer(nn.Sequential):
@@ -134,7 +132,6 @@ class _DenseBlock(nn.Container):
                                 num_input_features + i * growth_rate,
                                 growth_rate, bn_size, drop_rate)
             self.add_module('denselayer%d' % (i + 1), layer)
-
 
     def forward(self, x):
         # Update storage type
@@ -193,7 +190,6 @@ class DenseNetEfficient(nn.Module):
             self.features.add_module('pool0', nn.MaxPool2d(kernel_size=3, stride=2, padding=1,
                                                            ceil_mode=False))
 
-
         # Each denseblock
         num_features = num_init_features
         for i, num_layers in enumerate(block_config):
@@ -205,8 +201,7 @@ class DenseNetEfficient(nn.Module):
             num_features = num_features + num_layers * growth_rate
             if i != len(block_config) - 1:
                 trans = _Transition(num_input_features=num_features,
-                                    num_output_features=int(num_features
-                                                            * compression))
+                                    num_output_features=int(num_features * compression))
                 self.features.add_module('transition%d' % (i + 1), trans)
                 num_features = int(num_features * compression)
 
@@ -231,9 +226,18 @@ class DenseNetEfficient(nn.Module):
 
 class _EfficientDensenetBottleneckFn(Function):
     """
-    The autograd function which performs the efficient bottlenck operations.
-    Each of the sub-operations -- concatenation, batch normalization, ReLU,
-    and convolution -- are abstracted into their own classes
+    The autograd function which performs the efficient bottlenck operations:
+    --
+    1) concatenation
+    2) Batch Normalization
+    3) ReLU
+    --
+    Convolution is taken care of in a separate function
+
+    NOTE:
+    The output of the function (ReLU) is written on a temporary memory allocation.
+    If the output is not used IMMEDIATELY after calling forward, it is not guarenteed
+    to be the ReLU output
     """
     def __init__(self, shared_allocation_1, shared_allocation_2,
                  running_mean, running_var,
@@ -258,101 +262,93 @@ class _EfficientDensenetBottleneckFn(Function):
         self.curr_running_mean = self.running_mean.new(self.running_mean.size())
         self.curr_running_var = self.running_var.new(self.running_var.size())
 
-    def forward(self, bn_weight, bn_bias, conv_weight, *inputs):
+    def forward(self, bn_weight, bn_bias, *inputs):
+        # Save the current BN statistics for later
         self.prev_running_mean.copy_(self.running_mean)
         self.prev_running_var.copy_(self.running_var)
 
-        # Get size of new varible
+        # Create tensors that use shared allocations
+        # One for the concatenation output (bn_input)
+        # One for the ReLU output (relu_output)
         all_num_channels = [input.size(1) for input in inputs]
         size = list(inputs[0].size())
         for num_channels in all_num_channels[1:]:
             size[1] += num_channels
+        bn_input = type(inputs[0])(self.shared_allocation_1.storage).resize_(size)
+        relu_output = type(inputs[0])(self.shared_allocation_2.storage).resize_(size)
 
         # Create variable, using existing storage
-        bn_input = type(inputs[0])(self.shared_allocation_1.storage).resize_(size)
         torch.cat(inputs, dim=1, out=bn_input)
 
         # Do batch norm and relu, but don't save the intermediate variables
-        bn_output = F.batch_norm(Variable(bn_input, volatile=True), self.running_mean, self.running_var,
-                                 Variable(bn_weight, volatile=True), Variable(bn_bias, volatile=True),
-                                 training=self.training, momentum=self.momentum, eps=self.eps)
-        relu_output = F.relu(bn_output, inplace=True)
+        bn_output_var = F.batch_norm(Variable(bn_input), self.running_mean, self.running_var,
+                                     Variable(bn_weight), Variable(bn_bias), training=self.training,
+                                     momentum=self.momentum, eps=self.eps)
+        relu_output = torch.clamp(bn_output_var.data, 0, 1e100, out=relu_output)
 
-        # Move the output of the ReLU to the shared allocation
-        conv_input = type(inputs[0])(self.shared_allocation_2.storage).resize_(relu_output.size())
-        conv_input.copy_(relu_output.data)
-        relu_output.data.resize_(1)
-
-        # Do convolution - and save variables because we'll need them for backward pass
-        conv_input_var = Variable(conv_input, requires_grad=any(self.needs_input_grad))
-        # conv_input_var = Variable(relu_output.data, requires_grad=any(self.needs_input_grad))
-        conv_weight_var = Variable(conv_weight, requires_grad=self.needs_input_grad[2])
-        conv_output = F.conv2d(conv_input_var, conv_weight_var, bias=None, stride=self.stride,
-                               padding=0, dilation=1, groups=1)
-
-        self.save_for_backward(bn_weight, bn_bias, conv_weight, *inputs)
-        if any(self.needs_input_grad):
-            self.conv_input_var = conv_input_var
-            self.conv_weight_var = conv_weight_var
-            self.conv_output = conv_output
-        return conv_output.data
-
+        self.save_for_backward(bn_weight, bn_bias, *inputs)
+        return relu_output
 
     def backward(self, grad_output):
-        bn_weight, bn_bias, conv_weight = self.saved_tensors[:3]
-        inputs = self.saved_tensors[3:]
         grads = [None] * len(self.saved_tensors)
 
+        # If we don't need gradients, don't run backwards
         if not any(self.needs_input_grad):
             return grads
 
-        # Conv backward
-        self.conv_output.backward(gradient=grad_output)
-        if self.needs_input_grad[2]:
-            grads[2] = self.conv_weight_var.grad.data
+        bn_weight, bn_bias = self.saved_tensors[:2]
+        inputs = self.saved_tensors[2:]
 
-        if any(self.needs_input_grad[:2]) or any(self.needs_input_grad[3:]):
-            # Temporarily reset batch norm statistics
-            self.curr_running_mean.copy_(self.running_mean)
-            self.curr_running_var.copy_(self.running_var)
-            self.running_mean.copy_(self.prev_running_mean)
-            self.running_var.copy_(self.prev_running_var)
+        # Temporarily reset batch norm statistics
+        self.curr_running_mean.copy_(self.running_mean)
+        self.curr_running_var.copy_(self.running_var)
+        self.running_mean.copy_(self.prev_running_mean)
+        self.running_var.copy_(self.prev_running_var)
 
-            # Recompute concat and BN
-            all_num_channels = [input.size(1) for input in inputs]
-            size = list(inputs[0].size())
-            for num_channels in all_num_channels[1:]:
-                size[1] += num_channels
+        # Create tensors that use shared allocation
+        # One for the concatenation output (bn_input)
+        # One for the ReLU output (relu_output)
+        all_num_channels = [input.size(1) for input in inputs]
+        size = list(inputs[0].size())
+        for num_channels in all_num_channels[1:]:
+            size[1] += num_channels
+        bn_input = type(inputs[0])(self.shared_allocation_1.storage).resize_(size)
+        relu_output = type(inputs[0])(self.shared_allocation_2.storage).resize_(size)
 
-            bn_input = Variable(type(inputs[0])(self.shared_allocation_1.storage),
-                                requires_grad=any(self.needs_input_grad[3:]))
-            bn_input.data.resize_(size)
-            bn_weight_var = Variable(bn_weight, requires_grad=self.needs_input_grad[0])
-            bn_bias_var = Variable(bn_bias, requires_grad=self.needs_input_grad[1])
+        # We need these variables for BN gradients
+        bn_input_var = Variable(bn_input, requires_grad=True)
+        bn_weight_var = Variable(bn_weight, requires_grad=True)
+        bn_bias_var = Variable(bn_bias, requires_grad=True)
 
-            torch.cat(inputs, dim=1, out=bn_input.data)
-            bn_output = F.batch_norm(bn_input, self.running_mean, self.running_var,
-                                     bn_weight_var, bn_bias_var,
-                                     training=self.training, momentum=self.momentum, eps=self.eps)
-            relu_output = F.relu(bn_output, inplace=True)
+        # Recompute concatenation BN, ReLU
+        # This refills the shared allocations
+        torch.cat(inputs, dim=1, out=bn_input_var.data)
+        bn_output_var = F.batch_norm(bn_input_var, self.running_mean, self.running_var,
+                                     bn_weight_var, bn_bias_var, training=self.training,
+                                     momentum=self.momentum, eps=self.eps)
+        relu_output = type(inputs[0])(self.shared_allocation_2.storage).resize_(size)
+        relu_output = torch.clamp(bn_output_var.data, 0, 1e100, out=relu_output)
 
-            # ReLU/BN backward
-            relu_output.backward(gradient=self.conv_input_var.grad)
-            if self.needs_input_grad[0]:
-                grads[0] = bn_weight_var.grad.data
-            if self.needs_input_grad[1]:
-                grads[1] = bn_bias_var.grad.data
+        # BN weight/bias grad
+        # With the shared allocations re-populated, compute ReLU/BN backward
+        relu_grad_input = grad_output.masked_fill_(relu_output <= 0, 0)
+        bn_output_var.backward(gradient=relu_grad_input)
+        if self.needs_input_grad[0]:
+            grads[0] = bn_weight_var.grad.data
+        if self.needs_input_grad[1]:
+            grads[1] = bn_bias_var.grad.data
 
-            # Input grad
-            if any(self.needs_input_grad[3:]):
-                index = 0
-                for i, num_channels in enumerate(all_num_channels):
-                    new_index = num_channels + index
-                    grads[3 + i] = bn_input.grad.data[:, index:new_index]
-                    index = new_index
+        # Input grad (if needed)
+        # Run backwards through the concatenation operation
+        if any(self.needs_input_grad[2:]):
+            index = 0
+            for i, num_channels in enumerate(all_num_channels):
+                new_index = num_channels + index
+                grads[2 + i] = bn_input_var.grad.data[:, index:new_index]
+                index = new_index
 
-            # Reset bn training status and statistics
-            self.running_mean.copy_(self.curr_running_mean)
-            self.running_var.copy_(self.curr_running_var)
+        # Reset bn training status and statistics
+        self.running_mean.copy_(self.curr_running_mean)
+        self.running_var.copy_(self.curr_running_var)
 
         return tuple(grads)
