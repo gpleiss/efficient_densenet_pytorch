@@ -165,7 +165,7 @@ def train(model, train_set, test_set, save, n_epochs=300, valid_size=5000,
     best_error = 1
     for epoch in range(n_epochs):
         scheduler.step()
-        train_results = train_epoch(
+        _ = train_epoch(
             model=model,
             loader=train_loader,
             optimizer=optimizer,

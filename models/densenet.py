@@ -91,8 +91,7 @@ class DenseNet(nn.Module):
             num_features = num_features + num_layers * growth_rate
             if i != len(block_config) - 1:
                 trans = _Transition(num_input_features=num_features,
-                                    num_output_features=int(num_features
-                                                            * compression))
+                                    num_output_features=int(num_features * compression))
                 self.features.add_module('transition%d' % (i + 1), trans)
                 num_features = int(num_features * compression)
 
@@ -105,7 +104,6 @@ class DenseNet(nn.Module):
     def forward(self, x):
         features = self.features(x)
         out = F.relu(features, inplace=True)
-        out = F.avg_pool2d(out, kernel_size=self.avgpool_size).view(
-                           features.size(0), -1)
+        out = F.avg_pool2d(out, kernel_size=self.avgpool_size).view(features.size(0), -1)
         out = self.classifier(out)
         return out
