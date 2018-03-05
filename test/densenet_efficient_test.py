@@ -34,10 +34,8 @@ def test_forward_training_false_computes_forward_pass():
     input_2_var = Variable(input_2)
     out_var = layer(torch.cat([input_1_var, input_2_var], dim=1))
 
-    storage_1 = torch.Storage(4 * 8 * 3 * 3)
-    storage_2 = torch.Storage(4 * 8 * 3 * 3)
     layer_efficient = _EfficientDensenetBottleneck(
-        _SharedAllocation(storage_1), _SharedAllocation(storage_2), 8, 4
+        _SharedAllocation(4 * 8 * 3 * 3), _SharedAllocation(4 * 8 * 3 * 3), 8, 4
     )
     layer_efficient.eval()
     layer_efficient.norm_weight.data.copy_(bn_weight)
@@ -78,10 +76,8 @@ def test_forward_training_true_computes_forward_pass():
     input_2_var = Variable(input_2)
     out_var = layer(torch.cat([input_1_var, input_2_var], dim=1))
 
-    storage_1 = torch.Storage(4 * 8 * 3 * 3)
-    storage_2 = torch.Storage(4 * 8 * 3 * 3)
     layer_efficient = _EfficientDensenetBottleneck(
-        _SharedAllocation(storage_1), _SharedAllocation(storage_2), 8, 4
+        _SharedAllocation(4 * 8 * 3 * 3), _SharedAllocation(4 * 8 * 3 * 3), 8, 4
     )
     layer_efficient.norm_weight.data.copy_(bn_weight)
     layer_efficient.norm_bias.data.copy_(bn_bias)
@@ -125,10 +121,8 @@ def test_backward_computes_backward_pass():
     out_var = layer(torch.cat([input_1_var, input_2_var], dim=1))
     out_var.sum().backward()
 
-    storage_1 = torch.Storage(4 * 8 * 3 * 3)
-    storage_2 = torch.Storage(4 * 8 * 3 * 3)
     layer_efficient = _EfficientDensenetBottleneck(
-        _SharedAllocation(storage_1), _SharedAllocation(storage_2), 8, 4
+        _SharedAllocation(4 * 8 * 3 * 3), _SharedAllocation(4 * 8 * 3 * 3), 8, 4
     )
     layer_efficient.train()
     layer_efficient.norm_weight.data.copy_(bn_weight)

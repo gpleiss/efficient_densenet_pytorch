@@ -20,24 +20,61 @@ class _SharedAllocation(object):
     A helper class which maintains a shared memory allocation.
     Used for concatenation and batch normalization.
     """
-    def __init__(self, storage):
-        self.storage = storage
+    def __init__(self, size):
+        self._cpu_storage = torch.Storage(size)
+        self._gpu_storages = []
+        if torch.cuda.is_available():
+            for device_idx in range(torch.cuda.device_count()):
+                with torch.cuda.device(device_idx):
+                    self._gpu_storages.append(torch.Storage(size).cuda())
 
     def type(self, t):
-        self.storage = self.storage.type(t)
+        if not t.is_cuda:
+            self._cpu_storage = self._cpu_storage.type(t)
+        else:
+            for device_idx, storage in enumerate(self._gpu_storages):
+                with torch.cuda.device(device_idx):
+                    self._gpu_storages[device_idx] = storage.type(t)
 
     def type_as(self, obj):
         if isinstance(obj, Variable):
-            self.storage = self.storage.type(obj.data.storage().type())
-        elif isinstance(obj, torch._TensorBase):
-            self.storage = self.storage.type(obj.storage().type())
+            if not obj.is_cuda:
+                self._cpu_storage = self._cpu_storage.type(obj.data.storage().type())
+            else:
+                for device_idx, storage in enumerate(self._gpu_storages):
+                    with torch.cuda.device(device_idx):
+                        self._gpu_storages[device_idx] = storage.type(obj.data.storage().type())
+        elif torch.is_tensor(obj):
+            if not obj.is_cuda:
+                self._cpu_storage = self._cpu_storage.type(obj.storage().type())
+            else:
+                for device_idx, storage in enumerate(self._gpu_storages):
+                    with torch.cuda.device(device_idx):
+                        self._gpu_storages[device_idx] = storage.type(obj.storage().type())
         else:
-            self.storage = self.storage.type(obj.type())
+            if not obj.is_cuda:
+                self._cpu_storage = self._cpu_storage.type(obj.storage().type())
+            else:
+                for device_idx, storage in enumerate(self._gpu_storages):
+                    with torch.cuda.device(device_idx):
+                        self._gpu_storages[device_idx] = storage.type(obj.type())
 
     def resize_(self, size):
-        if self.storage.size() < size:
-            self.storage.resize_(size)
+        if self._cpu_storage.size() < size:
+            self._cpu_storage.resize_(size)
+        for device_idx, storage in enumerate(self._gpu_storages):
+            if storage.size() < size:
+                with torch.cuda.device(device_idx):
+                    self._gpu_storages[device_idx].resize_(size)
         return self
+
+    def storage_for(self, val):
+        if val.is_cuda:
+            with torch.cuda.device_of(val):
+                curr_device_id = torch.cuda.current_device()
+                return self._gpu_storages[curr_device_id]
+        else:
+            return self._cpu_storage
 
 
 class _EfficientDensenetBottleneck(nn.Module):
@@ -120,11 +157,9 @@ class _Transition(nn.Sequential):
 
 class _DenseBlock(nn.Container):
     def __init__(self, num_layers, num_input_features, bn_size, growth_rate, drop_rate, storage_size=1024):
-        input_storage_1 = torch.Storage(storage_size)
-        input_storage_2 = torch.Storage(storage_size)
         self.final_num_features = num_input_features + (growth_rate * num_layers)
-        self.shared_allocation_1 = _SharedAllocation(input_storage_1)
-        self.shared_allocation_2 = _SharedAllocation(input_storage_2)
+        self.shared_allocation_1 = _SharedAllocation(storage_size)
+        self.shared_allocation_2 = _SharedAllocation(storage_size)
 
         super(_DenseBlock, self).__init__()
         for i in range(num_layers):
@@ -274,8 +309,9 @@ class _EfficientDensenetBottleneckFn(Function):
         size = list(inputs[0].size())
         for num_channels in all_num_channels[1:]:
             size[1] += num_channels
-        bn_input = type(inputs[0])(self.shared_allocation_1.storage).resize_(size)
-        relu_output = type(inputs[0])(self.shared_allocation_2.storage).resize_(size)
+        storage = self.shared_allocation_1.storage_for(inputs[0])
+        bn_input = type(inputs[0])(storage).resize_(size)
+        relu_output = type(inputs[0])(storage).resize_(size)
 
         # Create variable, using existing storage
         torch.cat(inputs, dim=1, out=bn_input)
@@ -284,7 +320,7 @@ class _EfficientDensenetBottleneckFn(Function):
         bn_output_var = F.batch_norm(Variable(bn_input), self.running_mean, self.running_var,
                                      Variable(bn_weight), Variable(bn_bias), training=self.training,
                                      momentum=self.momentum, eps=self.eps)
-        relu_output = torch.clamp(bn_output_var.data, 0, 1e100, out=relu_output)
+        torch.clamp(bn_output_var.data, 0, 1e100, out=relu_output)
 
         self.save_for_backward(bn_weight, bn_bias, *inputs)
         return relu_output
@@ -312,8 +348,8 @@ class _EfficientDensenetBottleneckFn(Function):
         size = list(inputs[0].size())
         for num_channels in all_num_channels[1:]:
             size[1] += num_channels
-        bn_input = type(inputs[0])(self.shared_allocation_1.storage).resize_(size)
-        relu_output = type(inputs[0])(self.shared_allocation_2.storage).resize_(size)
+        bn_input = type(inputs[0])(self.shared_allocation_1.storage_for(inputs[0])).resize_(size)
+        relu_output = type(inputs[0])(self.shared_allocation_2.storage_for(inputs[0])).resize_(size)
 
         # We need these variables for BN gradients
         bn_input_var = Variable(bn_input, requires_grad=True)
@@ -326,8 +362,7 @@ class _EfficientDensenetBottleneckFn(Function):
         bn_output_var = F.batch_norm(bn_input_var, self.running_mean, self.running_var,
                                      bn_weight_var, bn_bias_var, training=self.training,
                                      momentum=self.momentum, eps=self.eps)
-        relu_output = type(inputs[0])(self.shared_allocation_2.storage).resize_(size)
-        relu_output = torch.clamp(bn_output_var.data, 0, 1e100, out=relu_output)
+        torch.clamp(bn_output_var.data, 0, 1e100, out=relu_output)
 
         # BN weight/bias grad
         # With the shared allocations re-populated, compute ReLU/BN backward

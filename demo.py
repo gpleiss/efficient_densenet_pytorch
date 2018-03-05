@@ -156,8 +156,13 @@ def train(model, train_set, test_set, save, n_epochs=300, valid_size=5000,
     if torch.cuda.is_available():
         model = model.cuda()
 
+    # Wrap model for multi-GPUs, if necessary
+    model_wrapper = model
+    if torch.cuda.is_available() and torch.cuda.device_count() > 1:
+        model_wrapper = torch.nn.DataParallel(model).cuda()
+
     # Optimizer
-    optimizer = torch.optim.SGD(model.parameters(), lr=lr, momentum=momentum, nesterov=True, weight_decay=wd)
+    optimizer = torch.optim.SGD(model_wrapper.parameters(), lr=lr, momentum=momentum, nesterov=True, weight_decay=wd)
     scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[0.5 * n_epochs, 0.75 * n_epochs],
                                                      gamma=0.1)
 
@@ -166,14 +171,14 @@ def train(model, train_set, test_set, save, n_epochs=300, valid_size=5000,
     for epoch in range(n_epochs):
         scheduler.step()
         _ = train_epoch(
-            model=model,
+            model=model_wrapper,
             loader=train_loader,
             optimizer=optimizer,
             epoch=epoch,
             n_epochs=n_epochs,
         )
         valid_results = test_epoch(
-            model=model,
+            model=model_wrapper,
             loader=valid_loader if valid_loader else test_loader,
             is_test=(not valid_loader)
         )
@@ -189,6 +194,8 @@ def train(model, train_set, test_set, save, n_epochs=300, valid_size=5000,
 
     # Final test of model on test set
     model.load_state_dict(torch.load(os.path.join(save, 'model.dat')))
+    if torch.cuda.is_available() and torch.cuda.device_count() > 1:
+        model = torch.nn.DataParallel(model).cuda()
     test_results = test_epoch(
         model=model,
         loader=test_loader,
