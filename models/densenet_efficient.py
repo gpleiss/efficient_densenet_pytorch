@@ -15,68 +15,6 @@ from torch.autograd import Variable, Function
 # Let's start with the nice (and interesting) stuff
 
 
-class _SharedAllocation(object):
-    """
-    A helper class which maintains a shared memory allocation.
-    Used for concatenation and batch normalization.
-    """
-    def __init__(self, size):
-        self._cpu_storage = torch.Storage(size)
-        self._gpu_storages = []
-        if torch.cuda.is_available():
-            for device_idx in range(torch.cuda.device_count()):
-                with torch.cuda.device(device_idx):
-                    self._gpu_storages.append(torch.Storage(size).cuda())
-
-    def type(self, t):
-        if not t.is_cuda:
-            self._cpu_storage = self._cpu_storage.type(t)
-        else:
-            for device_idx, storage in enumerate(self._gpu_storages):
-                with torch.cuda.device(device_idx):
-                    self._gpu_storages[device_idx] = storage.type(t)
-
-    def type_as(self, obj):
-        if isinstance(obj, Variable):
-            if not obj.is_cuda:
-                self._cpu_storage = self._cpu_storage.type(obj.data.storage().type())
-            else:
-                for device_idx, storage in enumerate(self._gpu_storages):
-                    with torch.cuda.device(device_idx):
-                        self._gpu_storages[device_idx] = storage.type(obj.data.storage().type())
-        elif torch.is_tensor(obj):
-            if not obj.is_cuda:
-                self._cpu_storage = self._cpu_storage.type(obj.storage().type())
-            else:
-                for device_idx, storage in enumerate(self._gpu_storages):
-                    with torch.cuda.device(device_idx):
-                        self._gpu_storages[device_idx] = storage.type(obj.storage().type())
-        else:
-            if not obj.is_cuda:
-                self._cpu_storage = self._cpu_storage.type(obj.storage().type())
-            else:
-                for device_idx, storage in enumerate(self._gpu_storages):
-                    with torch.cuda.device(device_idx):
-                        self._gpu_storages[device_idx] = storage.type(obj.type())
-
-    def resize_(self, size):
-        if self._cpu_storage.size() < size:
-            self._cpu_storage.resize_(size)
-        for device_idx, storage in enumerate(self._gpu_storages):
-            if storage.size() < size:
-                with torch.cuda.device(device_idx):
-                    self._gpu_storages[device_idx].resize_(size)
-        return self
-
-    def storage_for(self, val):
-        if val.is_cuda:
-            with torch.cuda.device_of(val):
-                curr_device_id = torch.cuda.current_device()
-                return self._gpu_storages[curr_device_id]
-        else:
-            return self._cpu_storage
-
-
 class _EfficientDensenetBottleneck(nn.Module):
     """
     A optimized layer which encapsulates the batch normalization, ReLU, and
@@ -110,13 +48,27 @@ class _EfficientDensenetBottleneck(nn.Module):
     def forward(self, inputs):
         if isinstance(inputs, Variable):
             inputs = [inputs]
+
+        # The EfficientDensenetBottleneckFn performs the concatenation, batch norm, and ReLU.
+        # It does not create any new storage
+        # Rather, it uses a shared memory allocation to store the intermediate feature maps
+        # These intermediate feature maps have to be re-populated before the backward pass
         fn = _EfficientDensenetBottleneckFn(self.shared_allocation_1, self.shared_allocation_2,
                                             self.norm_running_mean, self.norm_running_var,
                                             training=self.training, momentum=0.1, eps=1e-5)
         relu_output = fn(self.norm_weight, self.norm_bias, *inputs)
+
+        # The convolutional output - using relu_output which is stored in shared memory allocation
         conv_output = F.conv2d(relu_output, self.conv_weight, bias=None, stride=1,
                                padding=0, dilation=1, groups=1)
-        return conv_output
+
+        # Register a hook to re-populate the storages (relu_output and concat) on backward pass
+        # To do this, we need a dummy function
+        dummy_fn = _DummyBackwardHookFn(fn)
+        output = dummy_fn(conv_output)
+
+        # Return the convolution output
+        return output
 
 
 class _DenseLayer(nn.Sequential):
@@ -259,6 +211,68 @@ class DenseNetEfficient(nn.Module):
 # Here's where we define the internals of the efficient bottleneck layer
 
 
+class _SharedAllocation(object):
+    """
+    A helper class which maintains a shared memory allocation.
+    Used for concatenation and batch normalization.
+    """
+    def __init__(self, size):
+        self._cpu_storage = torch.Storage(size)
+        self._gpu_storages = []
+        if torch.cuda.is_available():
+            for device_idx in range(torch.cuda.device_count()):
+                with torch.cuda.device(device_idx):
+                    self._gpu_storages.append(torch.Storage(size).cuda())
+
+    def type(self, t):
+        if not t.is_cuda:
+            self._cpu_storage = self._cpu_storage.type(t)
+        else:
+            for device_idx, storage in enumerate(self._gpu_storages):
+                with torch.cuda.device(device_idx):
+                    self._gpu_storages[device_idx] = storage.type(t)
+
+    def type_as(self, obj):
+        if isinstance(obj, Variable):
+            if not obj.is_cuda:
+                self._cpu_storage = self._cpu_storage.type(obj.data.storage().type())
+            else:
+                for device_idx, storage in enumerate(self._gpu_storages):
+                    with torch.cuda.device(device_idx):
+                        self._gpu_storages[device_idx] = storage.type(obj.data.storage().type())
+        elif torch.is_tensor(obj):
+            if not obj.is_cuda:
+                self._cpu_storage = self._cpu_storage.type(obj.storage().type())
+            else:
+                for device_idx, storage in enumerate(self._gpu_storages):
+                    with torch.cuda.device(device_idx):
+                        self._gpu_storages[device_idx] = storage.type(obj.storage().type())
+        else:
+            if not obj.is_cuda:
+                self._cpu_storage = self._cpu_storage.type(obj.storage().type())
+            else:
+                for device_idx, storage in enumerate(self._gpu_storages):
+                    with torch.cuda.device(device_idx):
+                        self._gpu_storages[device_idx] = storage.type(obj.type())
+
+    def resize_(self, size):
+        if self._cpu_storage.size() < size:
+            self._cpu_storage.resize_(size)
+        for device_idx, storage in enumerate(self._gpu_storages):
+            if storage.size() < size:
+                with torch.cuda.device(device_idx):
+                    self._gpu_storages[device_idx].resize_(size)
+        return self
+
+    def storage_for(self, val):
+        if val.is_cuda:
+            with torch.cuda.device_of(val):
+                curr_device_id = torch.cuda.current_device()
+                return self._gpu_storages[curr_device_id]
+        else:
+            return self._cpu_storage
+
+
 class _EfficientDensenetBottleneckFn(Function):
     """
     The autograd function which performs the efficient bottlenck operations:
@@ -310,28 +324,26 @@ class _EfficientDensenetBottleneckFn(Function):
         for num_channels in all_num_channels[1:]:
             size[1] += num_channels
         storage = self.shared_allocation_1.storage_for(inputs[0])
-        bn_input = type(inputs[0])(storage).resize_(size)
+        bn_input_var = Variable(type(inputs[0])(storage).resize_(size), requires_grad=False)
         relu_output = type(inputs[0])(storage).resize_(size)
 
         # Create variable, using existing storage
-        torch.cat(inputs, dim=1, out=bn_input)
+        torch.cat(inputs, dim=1, out=bn_input_var.data)
 
-        # Do batch norm and relu, but don't save the intermediate variables
-        bn_output_var = F.batch_norm(Variable(bn_input), self.running_mean, self.running_var,
-                                     Variable(bn_weight), Variable(bn_bias), training=self.training,
+        # Do batch norm
+        bn_weight_var = Variable(bn_weight, requires_grad=False)
+        bn_bias_var = Variable(bn_bias, requires_grad=False)
+        bn_output_var = F.batch_norm(bn_input_var, self.running_mean, self.running_var,
+                                     bn_weight_var, bn_bias_var, training=self.training,
                                      momentum=self.momentum, eps=self.eps)
+
+        # Do ReLU - and have the output be in the intermediate storage
         torch.clamp(bn_output_var.data, 0, 1e100, out=relu_output)
 
         self.save_for_backward(bn_weight, bn_bias, *inputs)
         return relu_output
 
-    def backward(self, grad_output):
-        grads = [None] * len(self.saved_tensors)
-
-        # If we don't need gradients, don't run backwards
-        if not any(self.needs_input_grad):
-            return grads
-
+    def prepare_backward(self):
         bn_weight, bn_bias = self.saved_tensors[:2]
         inputs = self.saved_tensors[2:]
 
@@ -341,49 +353,95 @@ class _EfficientDensenetBottleneckFn(Function):
         self.running_mean.copy_(self.prev_running_mean)
         self.running_var.copy_(self.prev_running_var)
 
-        # Create tensors that use shared allocation
-        # One for the concatenation output (bn_input)
-        # One for the ReLU output (relu_output)
+        # Re-do the forward pass to re-populate the shared storage
         all_num_channels = [input.size(1) for input in inputs]
         size = list(inputs[0].size())
         for num_channels in all_num_channels[1:]:
             size[1] += num_channels
-        bn_input = type(inputs[0])(self.shared_allocation_1.storage_for(inputs[0])).resize_(size)
-        relu_output = type(inputs[0])(self.shared_allocation_2.storage_for(inputs[0])).resize_(size)
+        storage1 = self.shared_allocation_1.storage_for(inputs[0])
+        self.bn_input_var = Variable(type(inputs[0])(storage1).resize_(size), requires_grad=True)
+        storage2 = self.shared_allocation_2.storage_for(inputs[0])
+        self.relu_output = type(inputs[0])(storage2).resize_(size)
 
-        # We need these variables for BN gradients
-        bn_input_var = Variable(bn_input, requires_grad=True)
-        bn_weight_var = Variable(bn_weight, requires_grad=True)
-        bn_bias_var = Variable(bn_bias, requires_grad=True)
+        # Create variable, using existing storage
+        torch.cat(inputs, dim=1, out=self.bn_input_var.data)
 
-        # Recompute concatenation BN, ReLU
-        # This refills the shared allocations
-        torch.cat(inputs, dim=1, out=bn_input_var.data)
-        bn_output_var = F.batch_norm(bn_input_var, self.running_mean, self.running_var,
-                                     bn_weight_var, bn_bias_var, training=self.training,
-                                     momentum=self.momentum, eps=self.eps)
-        torch.clamp(bn_output_var.data, 0, 1e100, out=relu_output)
+        # Do batch norm
+        self.bn_weight_var = Variable(bn_weight, requires_grad=True)
+        self.bn_bias_var = Variable(bn_bias, requires_grad=True)
+        self.bn_output_var = F.batch_norm(self.bn_input_var, self.running_mean, self.running_var,
+                                          self.bn_weight_var, self.bn_bias_var, training=self.training,
+                                          momentum=self.momentum, eps=self.eps)
+
+        # Do ReLU
+        torch.clamp(self.bn_output_var.data, 0, 1e100, out=self.relu_output)
+
+    def backward(self, grad_output):
+        """
+        Precondition: must call prepare_backward before calling backward
+        """
+
+        grads = [None] * len(self.saved_tensors)
+        inputs = self.saved_tensors[2:]
+
+        # If we don't need gradients, don't run backwards
+        if not any(self.needs_input_grad):
+            return grads
 
         # BN weight/bias grad
         # With the shared allocations re-populated, compute ReLU/BN backward
-        relu_grad_input = grad_output.masked_fill_(relu_output <= 0, 0)
-        bn_output_var.backward(gradient=relu_grad_input)
+        relu_grad_input = grad_output.masked_fill_(self.relu_output <= 0, 0)
+        self.bn_output_var.backward(gradient=relu_grad_input)
         if self.needs_input_grad[0]:
-            grads[0] = bn_weight_var.grad.data
+            grads[0] = self.bn_weight_var.grad.data
         if self.needs_input_grad[1]:
-            grads[1] = bn_bias_var.grad.data
+            grads[1] = self.bn_bias_var.grad.data
 
         # Input grad (if needed)
         # Run backwards through the concatenation operation
         if any(self.needs_input_grad[2:]):
+            all_num_channels = [input.size(1) for input in inputs]
             index = 0
             for i, num_channels in enumerate(all_num_channels):
                 new_index = num_channels + index
-                grads[2 + i] = bn_input_var.grad.data[:, index:new_index]
+                grads[2 + i] = self.bn_input_var.grad.data[:, index:new_index]
                 index = new_index
+
+        # Delete all intermediate variables
+        del self.bn_input_var
+        del self.bn_weight_var
+        del self.bn_bias_var
+        del self.bn_output_var
 
         # Reset bn training status and statistics
         self.running_mean.copy_(self.curr_running_mean)
         self.running_var.copy_(self.curr_running_var)
 
         return tuple(grads)
+
+
+class _DummyBackwardHookFn(Function):
+    """
+    A dummy function, which is just designed to run a backward hook
+    This allows us to re-populate the shared storages before running the backward
+    pass on the bottleneck layer
+    The function itself is just an identity function
+    """
+    def __init__(self, fn):
+        """
+        fn: function to call "prepare_backward" on
+        """
+        self.fn = fn
+
+    def forward(self, input):
+        """
+        Though this function is just an identity function, we have to return a new
+        tensor object in order to trigger the autograd.
+        """
+        size = input.size()
+        res = input.new(input.storage()).view(*size)
+        return res
+
+    def backward(self, grad_output):
+        self.fn.prepare_backward()
+        return grad_output
