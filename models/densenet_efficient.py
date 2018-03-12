@@ -290,17 +290,12 @@ class _EfficientDensenetBottleneckFn(Function):
     """
     def __init__(self, shared_allocation_1, shared_allocation_2,
                  running_mean, running_var,
-                 stride=1, padding=0, dilation=1, groups=1,
                  training=False, momentum=0.1, eps=1e-5):
 
         self.shared_allocation_1 = shared_allocation_1
         self.shared_allocation_2 = shared_allocation_2
         self.running_mean = running_mean
         self.running_var = running_var
-        self.stride = stride
-        self.padding = padding
-        self.dilation = dilation
-        self.groups = groups
         self.training = training
         self.momentum = momentum
         self.eps = eps
