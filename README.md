@@ -1,6 +1,10 @@
 # efficient_densenet_pytorch
 A PyTorch implementation of DenseNets, optimized to save GPU memory.
 
+## Recent updates
+1. **Now works on PyTorch 0.3.x!**
+1. `models/densenet_efficient_multi_gpu.py` is now depricated. `models/densenet_efficient.py` can handle both single and multi-GPU setups.
+
 ## Motivation
 While DenseNets are fairly easy to implement in deep learning frameworks, most
 implmementations (such as the [original](https://github.com/liuzhuang13/DenseNet)) tend to be memory-hungry.
@@ -18,17 +22,11 @@ For more details, please see the [technical report](https://arxiv.org/pdf/1707.0
 
 ![Diagram of implementation](https://raw.github.com/gpleiss/efficient_densenet_pytorch/master/images/forward.png)
 
+## Requirements
+- PyTorch 0.3.x
+- CUDA
+
 ## Usage
-
-**Note:**
-
-This demo was initially developed on PyTorch v0.1.12. And for some (unknown) reasons,
-it cannot pass all the unit tests on PyTorch v0.2, but the performance (final accuracy) still remains **the same** :).
-
-- If you would like to help us improve it on v0.2 or higher version, please trace this [issue](https://github.com/gpleiss/efficient_densenet_pytorch/issues/11).
-
-- To downgrade PyTorch from v0.2 or higher, please refer to this [instruction](https://discuss.pytorch.org/t/could-i-downgrade-pytorch-or-should-i-do-something-more-after-upgrading/1617/4).
-
 
 **In your existing project:**
 There are two files in the `models` folder.
@@ -36,24 +34,24 @@ There are two files in the `models` folder.
 [project killer](https://github.com/felixgwu/img_classification_pk_pytorch/blob/master/models/densenet.py) implementations.
  - `models/densenet_efficient.py` is the new efficient implementation. (Code is still a little ugly. We're working on cleaning it up!)
 Copy either one of those files into your project!
- - `models/densenet_efficient_multi_gpu.py` is the new efficient implementation with multi-GPU support.
-They work as stand-alone files.
+
+**Options:**
+- All options are described in [the docstrings of the model files](https://github.com/gpleiss/efficient_densenet_pytorch/blob/master/models/densenet_efficient.py#L189)
+- The depth is controlled by `block_config` option
+- If you want to use the model for ImageNet, set `small_inputs=False`. For CIFAR or SVHN, set `small_inputs=True`.
 
 **Running the demo:**
+
+The only extra package you need to install is [python-fire](https://github.com/google/python-fire):
+```sh
+pip install fire
+```
 
 - single GPU:
 
 ```sh
-CUDA_VISIBLE_DEVICES=0 python demo.py --efficient True --data <path_to_data_dir> --save <path_to_save_dir>
+CUDA_VISIBLE_DEVICES=0,1,2 python demo.py --efficient True --data <path_to_folder_with_cifar10> --save <path_to_save_dir>
 ```
-
-
-- multi GPUs:
-
-```sh
-CUDA_VISIBLE_DEVICES=0,1,2,3 python demo.py --multi-gpu True --data <path_to_data_dir> --save <path_to_save_dir>
-```
-
 
 Options:
 - `--depth` (int) - depth of the network (number of convolution layers) (default 40)
