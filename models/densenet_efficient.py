@@ -300,16 +300,10 @@ class _EfficientDensenetBottleneckFn(Function):
         self.momentum = momentum
         self.eps = eps
 
-        # Buffers to store old versions of bn statistics
-        self.prev_running_mean = self.running_mean.new(self.running_mean.size())
-        self.prev_running_var = self.running_var.new(self.running_var.size())
-        self.curr_running_mean = self.running_mean.new(self.running_mean.size())
-        self.curr_running_var = self.running_var.new(self.running_var.size())
-
     def forward(self, bn_weight, bn_bias, *inputs):
         # Save the current BN statistics for later
-        self.prev_running_mean.copy_(self.running_mean)
-        self.prev_running_var.copy_(self.running_var)
+        prev_running_mean = self.running_mean.clone()
+        prev_running_var = self.running_var.clone()
 
         # Create tensors that use shared allocations
         # One for the concatenation output (bn_input)
@@ -319,15 +313,15 @@ class _EfficientDensenetBottleneckFn(Function):
         for num_channels in all_num_channels[1:]:
             size[1] += num_channels
         storage = self.shared_allocation_1.storage_for(inputs[0])
-        bn_input_var = Variable(type(inputs[0])(storage).resize_(size), requires_grad=False)
+        bn_input_var = Variable(type(inputs[0])(storage).resize_(size), volatile=True)
         relu_output = type(inputs[0])(storage).resize_(size)
 
         # Create variable, using existing storage
         torch.cat(inputs, dim=1, out=bn_input_var.data)
 
         # Do batch norm
-        bn_weight_var = Variable(bn_weight, requires_grad=False)
-        bn_bias_var = Variable(bn_bias, requires_grad=False)
+        bn_weight_var = Variable(bn_weight, volatile=True)
+        bn_bias_var = Variable(bn_bias, volatile=True)
         bn_output_var = F.batch_norm(bn_input_var, self.running_mean, self.running_var,
                                      bn_weight_var, bn_bias_var, training=self.training,
                                      momentum=self.momentum, eps=self.eps)
@@ -336,17 +330,15 @@ class _EfficientDensenetBottleneckFn(Function):
         torch.clamp(bn_output_var.data, 0, 1e100, out=relu_output)
 
         self.save_for_backward(bn_weight, bn_bias, *inputs)
+        
+        # restore the BN statistics for later
+        self.running_mean.copy_(prev_running_mean)
+        self.running_var.copy_(prev_running_var)
         return relu_output
 
     def prepare_backward(self):
         bn_weight, bn_bias = self.saved_tensors[:2]
         inputs = self.saved_tensors[2:]
-
-        # Temporarily reset batch norm statistics
-        self.curr_running_mean.copy_(self.running_mean)
-        self.curr_running_var.copy_(self.running_var)
-        self.running_mean.copy_(self.prev_running_mean)
-        self.running_var.copy_(self.prev_running_var)
 
         # Re-do the forward pass to re-populate the shared storage
         all_num_channels = [input.size(1) for input in inputs]
@@ -407,10 +399,6 @@ class _EfficientDensenetBottleneckFn(Function):
         del self.bn_weight_var
         del self.bn_bias_var
         del self.bn_output_var
-
-        # Reset bn training status and statistics
-        self.running_mean.copy_(self.curr_running_mean)
-        self.running_var.copy_(self.curr_running_var)
 
         return tuple(grads)
 
