@@ -301,9 +301,10 @@ class _EfficientDensenetBottleneckFn(Function):
         self.eps = eps
 
     def forward(self, bn_weight, bn_bias, *inputs):
-        # Save the current BN statistics for later
-        prev_running_mean = self.running_mean.clone()
-        prev_running_var = self.running_var.clone()
+        if self.training:
+            # Save the current BN statistics for later
+            prev_running_mean = self.running_mean.clone()
+            prev_running_var = self.running_var.clone()
 
         # Create tensors that use shared allocations
         # One for the concatenation output (bn_input)
@@ -330,10 +331,10 @@ class _EfficientDensenetBottleneckFn(Function):
         torch.clamp(bn_output_var.data, 0, 1e100, out=relu_output)
 
         self.save_for_backward(bn_weight, bn_bias, *inputs)
-        
-        # restore the BN statistics for later
-        self.running_mean.copy_(prev_running_mean)
-        self.running_var.copy_(prev_running_var)
+        if self.training:
+            # restore the BN statistics for later
+            self.running_mean.copy_(prev_running_mean)
+            self.running_var.copy_(prev_running_var)
         return relu_output
 
     def prepare_backward(self):
