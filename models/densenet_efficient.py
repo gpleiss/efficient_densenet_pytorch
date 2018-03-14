@@ -299,7 +299,7 @@ class _EfficientDensenetBottleneckFn(Function):
         self.training = training
         self.momentum = momentum
         self.eps = eps
-        
+
         # Buffers to store old versions of bn statistics
         self.prev_running_mean = self.running_mean.new(self.running_mean.size())
         self.prev_running_var = self.running_var.new(self.running_var.size())
