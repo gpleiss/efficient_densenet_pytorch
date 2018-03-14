@@ -296,6 +296,8 @@ class _EfficientDensenetBottleneckFn(Function):
         self.shared_allocation_2 = shared_allocation_2
         self.running_mean = running_mean
         self.running_var = running_var
+        self.prev_running_mean = self.running_mean.new().resize_as_(self.running_mean)
+        self.prev_running_var = self.running_var.new().resize_as_(self.running_var)
         self.training = training
         self.momentum = momentum
         self.eps = eps
@@ -303,8 +305,8 @@ class _EfficientDensenetBottleneckFn(Function):
     def forward(self, bn_weight, bn_bias, *inputs):
         if self.training:
             # Save the current BN statistics for later
-            prev_running_mean = self.running_mean.clone()
-            prev_running_var = self.running_var.clone()
+            self.prev_running_mean.copy_(self.running_mean)
+            self.prev_running_var.copy_(self.running_var)
 
         # Create tensors that use shared allocations
         # One for the concatenation output (bn_input)
@@ -321,8 +323,8 @@ class _EfficientDensenetBottleneckFn(Function):
         torch.cat(inputs, dim=1, out=bn_input_var.data)
 
         # Do batch norm
-        bn_weight_var = Variable(bn_weight, volatile=True)
-        bn_bias_var = Variable(bn_bias, volatile=True)
+        bn_weight_var = Variable(bn_weight)
+        bn_bias_var = Variable(bn_bias)
         bn_output_var = F.batch_norm(bn_input_var, self.running_mean, self.running_var,
                                      bn_weight_var, bn_bias_var, training=self.training,
                                      momentum=self.momentum, eps=self.eps)
@@ -333,8 +335,8 @@ class _EfficientDensenetBottleneckFn(Function):
         self.save_for_backward(bn_weight, bn_bias, *inputs)
         if self.training:
             # restore the BN statistics for later
-            self.running_mean.copy_(prev_running_mean)
-            self.running_var.copy_(prev_running_var)
+            self.running_mean.copy_(self.prev_running_mean)
+            self.running_var.copy_(self.prev_running_var)
         return relu_output
 
     def prepare_backward(self):
