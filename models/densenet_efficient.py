@@ -296,11 +296,13 @@ class _EfficientDensenetBottleneckFn(Function):
         self.shared_allocation_2 = shared_allocation_2
         self.running_mean = running_mean
         self.running_var = running_var
-        self.prev_running_mean = self.running_mean.new().resize_as_(self.running_mean)
-        self.prev_running_var = self.running_var.new().resize_as_(self.running_var)
         self.training = training
         self.momentum = momentum
         self.eps = eps
+        
+        # Buffers to store old versions of bn statistics
+        self.prev_running_mean = self.running_mean.new(self.running_mean.size())
+        self.prev_running_var = self.running_var.new(self.running_var.size())
 
     def forward(self, bn_weight, bn_bias, *inputs):
         if self.training:
