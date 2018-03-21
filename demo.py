@@ -66,13 +66,13 @@ def train_epoch(model, loader, optimizer, epoch, n_epochs, print_freq=1):
 
         # print stats
         if batch_idx % print_freq == 0:
-            res = 'Epoch: [%d/%d], Iter: [%d/%d]\tTime %.3f (%.3f)\tLoss %.4f (%.4f)\tErr %.3f (%.3f)' % (
-                epoch + 1, n_epochs,
-                batch_idx + 1, len(loader),
-                batch_time.val, batch_time.avg,
-                losses.val, losses.avg,
-                error.val, error.avg,
-            )
+            res = '\t'.join([
+                'Epoch: [%d/%d]' % (epoch + 1, n_epochs),
+                'Iter: [%d/%d]' % (batch_idx + 1, len(loader)),
+                'Time %.3f (%.3f)' % (batch_time.val, batch_time.avg),
+                'Loss %.4f (%.4f)' % (losses.val, losses.avg),
+                'Error %.4f (%.4f)' % (error.val, error.avg),
+            ])
             print(res)
 
     # Return summary statistics
@@ -113,13 +113,13 @@ def test_epoch(model, loader, print_freq=1, is_test=True):
 
         # print stats
         if batch_idx % print_freq == 0:
-            res = '%s:\tIter: [%d/%d]\tTime %.3f (%.3f)\tLoss %.4f (%.4f)\tErr %.3f (%.3f)' % (
+            res = '\t'.join([
                 'Test' if is_test else 'Valid',
-                batch_idx + 1, len(loader),
-                batch_time.val, batch_time.avg,
-                losses.val, losses.avg,
-                error.val, error.avg,
-            )
+                'Iter: [%d/%d]' % (batch_idx + 1, len(loader)),
+                'Time %.3f (%.3f)' % (batch_time.val, batch_time.avg),
+                'Loss %.4f (%.4f)' % (losses.val, losses.avg),
+                'Error %.4f (%.4f)' % (error.val, error.avg),
+            ])
             print(res)
 
     # Return summary statistics
@@ -166,31 +166,44 @@ def train(model, train_set, test_set, save, n_epochs=300, valid_size=5000,
     scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[0.5 * n_epochs, 0.75 * n_epochs],
                                                      gamma=0.1)
 
+    # Start log
+    with open(os.path.join(save, 'results.csv'), 'w') as f:
+        f.write('epoch,train_loss,train_error,valid_loss,valid_error,test_error\n')
+
     # Train model
     best_error = 1
     for epoch in range(n_epochs):
         scheduler.step()
-        _ = train_epoch(
+        _, train_loss, train_error = train_epoch(
             model=model_wrapper,
             loader=train_loader,
             optimizer=optimizer,
             epoch=epoch,
             n_epochs=n_epochs,
         )
-        valid_results = test_epoch(
+        _, valid_loss, valid_error = test_epoch(
             model=model_wrapper,
             loader=valid_loader if valid_loader else test_loader,
             is_test=(not valid_loader)
         )
 
         # Determine if model is the best
-        _, _, valid_error = valid_results
         if valid_loader and valid_error < best_error:
             best_error = valid_error
             print('New best error: %.4f' % best_error)
             torch.save(model.state_dict(), os.path.join(save, 'model.dat'))
         else:
             torch.save(model.state_dict(), os.path.join(save, 'model.dat'))
+
+        # Log results
+        with open(os.path.join(save, 'results.csv'), 'a') as f:
+            f.write('%03d,%0.6f,%0.6f,%0.5f,%0.5f,\n' % (
+                (epoch + 1),
+                train_loss,
+                train_error,
+                valid_loss,
+                valid_error,
+            ))
 
     # Final test of model on test set
     model.load_state_dict(torch.load(os.path.join(save, 'model.dat')))
@@ -202,11 +215,13 @@ def train(model, train_set, test_set, save, n_epochs=300, valid_size=5000,
         is_test=True
     )
     _, _, test_error = test_results
+    with open(os.path.join(save, 'results.csv'), 'a') as f:
+        f.write(',,,,,%0.5f\n' % (test_error))
     print('Final test error: %.4f' % test_error)
 
 
 def demo(data, save, depth=40, growth_rate=12, efficient=True, valid_size=5000,
-         n_epochs=300, batch_size=256, seed=None, multi_gpu=False):
+         n_epochs=300, batch_size=256, seed=None):
     """
     A demo to show off training of efficient DenseNets.
     Trains and evaluates a DenseNet-BC on CIFAR-10.
