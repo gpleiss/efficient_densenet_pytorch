@@ -1,6 +1,7 @@
 # This implementation is based on the DenseNet-BC implementation in torchvision
 # https://github.com/pytorch/vision/blob/master/torchvision/models/densenet.py
 
+import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -100,6 +101,18 @@ class DenseNet(nn.Module):
 
         # Linear layer
         self.classifier = nn.Linear(num_features, num_classes)
+
+        # Initialization
+        for name, param in self.named_parameters():
+            if 'conv' in name and 'weight' in name:
+                n = param.size(0) * param.size(2) * param.size(3)
+                param.data.normal_().mul_(math.sqrt(2. / n))
+            elif 'norm' in name and 'weight' in name:
+                param.data.fill_(1)
+            elif 'norm' in name and 'bias' in name:
+                param.data.fill_(0)
+            elif 'classifier' in name and 'bias' in name:
+                param.data.fill_(0)
 
     def forward(self, x):
         features = self.features(x)
