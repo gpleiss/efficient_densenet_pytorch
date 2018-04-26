@@ -21,12 +21,13 @@ class _DenseLayer(nn.Module):
                         kernel_size=3, stride=1, padding=1, bias=False)),
         self.drop_rate = drop_rate
 
-    def forward(self, x):
-        bottleneck_output = self.conv1(self.relu1(self.norm1(x)))
+    def forward(self, *prev_features):
+        concated_features = torch.cat(prev_features, 1)
+        bottleneck_output = self.conv1(self.relu1(self.norm1(concated_features)))
         new_features = self.conv2(self.relu2(self.norm2(bottleneck_output)))
         if self.drop_rate > 0:
             new_features = F.dropout(new_features, p=self.drop_rate, training=self.training)
-        return torch.cat([x, new_features], 1)
+        return new_features
 
 
 class _Transition(nn.Sequential):
@@ -39,12 +40,21 @@ class _Transition(nn.Sequential):
         self.add_module('pool', nn.AvgPool2d(kernel_size=2, stride=2))
 
 
-class _DenseBlock(nn.Sequential):
+class _DenseBlock(nn.Module):
     def __init__(self, num_layers, num_input_features, bn_size, growth_rate, drop_rate):
         super(_DenseBlock, self).__init__()
+        self.dense_layers = []
         for i in range(num_layers):
             layer = _DenseLayer(num_input_features + i * growth_rate, growth_rate, bn_size, drop_rate)
             self.add_module('denselayer%d' % (i + 1), layer)
+            self.dense_layers.append(layer)
+
+    def forward(self, init_features):
+        features = [init_features]
+        for layer in self.dense_layers:
+            new_features = layer(*features)
+            features.append(new_features)
+        return torch.cat(features, 1)
 
 
 class DenseNet(nn.Module):
