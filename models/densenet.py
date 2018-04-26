@@ -8,21 +8,22 @@ import torch.nn.functional as F
 from collections import OrderedDict
 
 
-class _DenseLayer(nn.Sequential):
+class _DenseLayer(nn.Module):
     def __init__(self, num_input_features, growth_rate, bn_size, drop_rate):
         super(_DenseLayer, self).__init__()
-        self.add_module('norm.1', nn.BatchNorm2d(num_input_features)),
-        self.add_module('relu.1', nn.ReLU(inplace=True)),
-        self.add_module('conv.1', nn.Conv2d(num_input_features, bn_size *
+        self.add_module('norm1', nn.BatchNorm2d(num_input_features)),
+        self.add_module('relu1', nn.ReLU(inplace=True)),
+        self.add_module('conv1', nn.Conv2d(num_input_features, bn_size *
                         growth_rate, kernel_size=1, stride=1, bias=False)),
-        self.add_module('norm.2', nn.BatchNorm2d(bn_size * growth_rate)),
-        self.add_module('relu.2', nn.ReLU(inplace=True)),
-        self.add_module('conv.2', nn.Conv2d(bn_size * growth_rate, growth_rate,
+        self.add_module('norm2', nn.BatchNorm2d(bn_size * growth_rate)),
+        self.add_module('relu2', nn.ReLU(inplace=True)),
+        self.add_module('conv2', nn.Conv2d(bn_size * growth_rate, growth_rate,
                         kernel_size=3, stride=1, padding=1, bias=False)),
         self.drop_rate = drop_rate
 
     def forward(self, x):
-        new_features = super(_DenseLayer, self).forward(x)
+        bottleneck_output = self.conv1(self.relu1(self.norm1(x)))
+        new_features = self.conv2(self.relu2(self.norm2(bottleneck_output)))
         if self.drop_rate > 0:
             new_features = F.dropout(new_features, p=self.drop_rate, training=self.training)
         return torch.cat([x, new_features], 1)

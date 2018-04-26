@@ -3,7 +3,7 @@ import os
 import time
 import torch
 from torchvision import datasets, transforms
-from models import DenseNet, DenseNetEfficient
+from models import DenseNet
 
 
 class AverageMeter(object):
@@ -265,8 +265,7 @@ def demo(data, save, depth=40, growth_rate=12, efficient=True, valid_size=5000,
     test_set = datasets.CIFAR10(data, train=False, transform=test_transforms, download=False)
 
     # Models
-    klass = DenseNetEfficient if efficient else DenseNet
-    model = klass(
+    model = DenseNet(
         growth_rate=growth_rate,
         block_config=block_config,
         num_classes=10,
