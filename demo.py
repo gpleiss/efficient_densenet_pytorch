@@ -53,7 +53,7 @@ def train_epoch(model, loader, optimizer, epoch, n_epochs, print_freq=1):
         batch_size = target.size(0)
         _, pred = output.data.cpu().topk(1, dim=1)
         error.update(torch.ne(pred.squeeze(), target.cpu()).float().sum() / batch_size, batch_size)
-        losses.update(loss.data[0], batch_size)
+        losses.update(loss.item(), batch_size)
 
         # compute gradient and do SGD step
         optimizer.zero_grad()
