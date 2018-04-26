@@ -220,8 +220,8 @@ def train(model, train_set, test_set, save, n_epochs=300, valid_size=5000,
     print('Final test error: %.4f' % test_error)
 
 
-def demo(data, save, depth=40, growth_rate=12, efficient=True, valid_size=5000,
-         n_epochs=300, batch_size=256, seed=None):
+def demo(data, save, depth=100, growth_rate=12, efficient=True, valid_size=5000,
+         n_epochs=300, batch_size=64, seed=None):
     """
     A demo to show off training of efficient DenseNets.
     Trains and evaluates a DenseNet-BC on CIFAR-10.
@@ -269,7 +269,8 @@ def demo(data, save, depth=40, growth_rate=12, efficient=True, valid_size=5000,
         growth_rate=growth_rate,
         block_config=block_config,
         num_classes=10,
-        small_inputs=True
+        small_inputs=True,
+        efficient=efficient,
     )
     print(model)
 
