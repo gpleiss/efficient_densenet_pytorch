@@ -3,7 +3,7 @@ import os
 import time
 import torch
 from torchvision import datasets, transforms
-from models import DenseNet, DenseNetEfficient
+from models import DenseNet
 
 
 class AverageMeter(object):
@@ -53,7 +53,7 @@ def train_epoch(model, loader, optimizer, epoch, n_epochs, print_freq=1):
         batch_size = target.size(0)
         _, pred = output.data.cpu().topk(1, dim=1)
         error.update(torch.ne(pred.squeeze(), target.cpu()).float().sum() / batch_size, batch_size)
-        losses.update(loss.data[0], batch_size)
+        losses.update(loss.item(), batch_size)
 
         # compute gradient and do SGD step
         optimizer.zero_grad()
@@ -220,8 +220,8 @@ def train(model, train_set, test_set, save, n_epochs=300, valid_size=5000,
     print('Final test error: %.4f' % test_error)
 
 
-def demo(data, save, depth=40, growth_rate=12, efficient=True, valid_size=5000,
-         n_epochs=300, batch_size=256, seed=None):
+def demo(data, save, depth=100, growth_rate=12, efficient=True, valid_size=5000,
+         n_epochs=300, batch_size=64, seed=None):
     """
     A demo to show off training of efficient DenseNets.
     Trains and evaluates a DenseNet-BC on CIFAR-10.
@@ -265,12 +265,12 @@ def demo(data, save, depth=40, growth_rate=12, efficient=True, valid_size=5000,
     test_set = datasets.CIFAR10(data, train=False, transform=test_transforms, download=False)
 
     # Models
-    klass = DenseNetEfficient if efficient else DenseNet
-    model = klass(
+    model = DenseNet(
         growth_rate=growth_rate,
         block_config=block_config,
         num_classes=10,
-        small_inputs=True
+        small_inputs=True,
+        efficient=efficient,
     )
     print(model)
 
