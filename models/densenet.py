@@ -57,7 +57,6 @@ class _Transition(nn.Sequential):
 class _DenseBlock(nn.Module):
     def __init__(self, num_layers, num_input_features, bn_size, growth_rate, drop_rate, efficient=False):
         super(_DenseBlock, self).__init__()
-        self.dense_layers = []
         for i in range(num_layers):
             layer = _DenseLayer(
                 num_input_features + i * growth_rate,
@@ -67,11 +66,10 @@ class _DenseBlock(nn.Module):
                 efficient=efficient,
             )
             self.add_module('denselayer%d' % (i + 1), layer)
-            self.dense_layers.append(layer)
 
     def forward(self, init_features):
         features = [init_features]
-        for layer in self.dense_layers:
+        for name, layer in self.named_children():
             new_features = layer(*features)
             features.append(new_features)
         return torch.cat(features, 1)
