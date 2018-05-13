@@ -1,5 +1,10 @@
 # efficient_densenet_pytorch
-A PyTorch implementation of DenseNets, optimized to save GPU memory.
+A PyTorch 0.4 implementation of DenseNets, optimized to save GPU memory.
+
+## Recent updates
+1. **Now works on PyTorch 0.4!** It uses the checkpointing feature, which makes this code WAY more efficient!!!
+1. **No longer works with PyTorch 0.3.x.** If you are using an old version of PyTorch, check out [the pytorch_0.3.1 tag](https://github.com/gpleiss/efficient_densenet_pytorch/tree/pytorch_0.3.1) for an older version of this code.
+1. `models/densenet_efficient.py` is now depricated. `models/densenet.py` can handle both the efficient and original implementations.
 
 ## Motivation
 While DenseNets are fairly easy to implement in deep learning frameworks, most
@@ -18,32 +23,46 @@ For more details, please see the [technical report](https://arxiv.org/pdf/1707.0
 
 ![Diagram of implementation](https://raw.github.com/gpleiss/efficient_densenet_pytorch/master/images/forward.png)
 
+## Requirements
+- PyTorch 0.4
+- CUDA
+
+**N.B.** If you are using PyTorch 0.3.x, please check out [the 0.3.x compatible version](https://github.com/gpleiss/efficient_densenet_pytorch/tree/pytorch_0.3.1).
+
 ## Usage
 
 **In your existing project:**
-There are two files in the `models` folder.
- - `models/densenet.py` is a "naive" implementation, based off the [torchvision](https://github.com/pytorch/vision/blob/master/torchvision/models/densenet.py) and
+There is one file in the `models` folder.
+ - `models/densenet.py` is an implementation based off the [torchvision](https://github.com/pytorch/vision/blob/master/torchvision/models/densenet.py) and
 [project killer](https://github.com/felixgwu/img_classification_pk_pytorch/blob/master/models/densenet.py) implementations.
- - `models/densenet_efficient.py` is the new efficient implementation. (Code is still a little ugly. We're working on cleaning it up!)
-Copy either one of those files into your project!
- - `models/densenet_efficient.py` is the new efficient implementation with multi-GPU support.
-They work as stand-alone files.
+
+If you care about speed, and memory is not an option, pass the `efficient=False` argument into the `DenseNet` constructor.
+Otherwise, pass in `efficient=True`.
+
+**Options:**
+- All options are described in [the docstrings of the model files](https://github.com/gpleiss/efficient_densenet_pytorch/blob/master/models/densenet_efficient.py#L189)
+- The depth is controlled by `block_config` option
+- `efficient=True` uses the memory-efficient version
+- If you want to use the model for ImageNet, set `small_inputs=False`. For CIFAR or SVHN, set `small_inputs=True`.
 
 **Running the demo:**
 
-- single GPU:
-
+The only extra package you need to install is [python-fire](https://github.com/google/python-fire):
 ```sh
-CUDA_VISIBLE_DEVICES=0 python2 demo.py --efficient True --data <path_to_data_dir> --save <path_to_save_dir>
+pip install fire
 ```
 
-
-- multi GPUs:
+- Single GPU:
 
 ```sh
-CUDA_VISIBLE_DEVICES=0,1,2,3 python2 demo.py --multi-gpu True --data <path_to_data_dir> --save <path_to_save_dir>
+CUDA_VISIBLE_DEVICES=0 python demo.py --efficient True --data <path_to_folder_with_cifar10> --save <path_to_save_dir>
 ```
 
+- Multiple GPU:
+
+```sh
+CUDA_VISIBLE_DEVICES=0,1,2 python demo.py --efficient True --data <path_to_folder_with_cifar10> --save <path_to_save_dir>
+```
 
 Options:
 - `--depth` (int) - depth of the network (number of convolution layers) (default 40)
@@ -67,3 +86,14 @@ A comparison of the two implementations (each is a DenseNet-BC with 100 layers, 
 - [LuaTorch](https://github.com/liuzhuang13/DenseNet/tree/master/models) (by Gao Huang)
 - [MxNet](https://github.com/taineleau/efficient_densenet_mxnet) (by Danlu Chen)
 - [Caffe](https://github.com/Tongcheng/DN_CaffeScript) (by Tongcheng Li)
+
+## Reference
+
+```
+@article{pleiss2017memory,
+  title={Memory-Efficient Implementation of DenseNets},
+  author={Pleiss, Geoff and Chen, Danlu and Huang, Gao and Li, Tongcheng and van der Maaten, Laurens and Weinberger, Kilian Q},
+  journal={arXiv preprint arXiv:1707.06990},
+  year={2017}
+}
+```
