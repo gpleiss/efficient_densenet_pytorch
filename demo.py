@@ -294,7 +294,7 @@ Try out the efficient DenseNet implementation:
 python demo.py --efficient True --data <path_to_data_dir> --save <path_to_save_dir>
 
 Try out the naive DenseNet implementation:
-python demo.py --efficient True --data <path_to_data_dir> --save <path_to_save_dir>
+python demo.py --efficient False --data <path_to_data_dir> --save <path_to_save_dir>
 
 Other args:
     --depth (int) - depth of the network (number of convolution layers) (default 40)
