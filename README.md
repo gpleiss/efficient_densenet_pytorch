@@ -84,6 +84,7 @@ A comparison of the two implementations (each is a DenseNet-BC with 100 layers, 
 
 ## Other efficient implementations
 - [LuaTorch](https://github.com/liuzhuang13/DenseNet/tree/master/models) (by Gao Huang)
+- [Tensorflow](https://github.com/joeyearsley/efficient_densenet_tensorflow) (by Joe Yearsley)
 - [MxNet](https://github.com/taineleau/efficient_densenet_mxnet) (by Danlu Chen)
 - [Caffe](https://github.com/Tongcheng/DN_CaffeScript) (by Tongcheng Li)
 
