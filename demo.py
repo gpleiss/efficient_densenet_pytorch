@@ -39,20 +39,17 @@ def train_epoch(model, loader, optimizer, epoch, n_epochs, print_freq=1):
     for batch_idx, (input, target) in enumerate(loader):
         # Create vaiables
         if torch.cuda.is_available():
-            input_var = torch.autograd.Variable(input.cuda(async=True))
-            target_var = torch.autograd.Variable(target.cuda(async=True))
-        else:
-            input_var = torch.autograd.Variable(input)
-            target_var = torch.autograd.Variable(target)
+            input = input.cuda()
+            target = target.cuda()
 
         # compute output
-        output = model(input_var)
-        loss = torch.nn.functional.cross_entropy(output, target_var)
+        output = model(input)
+        loss = torch.nn.functional.cross_entropy(output, target)
 
         # measure accuracy and record loss
         batch_size = target.size(0)
         _, pred = output.data.cpu().topk(1, dim=1)
-        error.update(torch.ne(pred.squeeze(), target.cpu()).float().sum() / batch_size, batch_size)
+        error.update(torch.ne(pred.squeeze(), target.cpu()).float().sum().item() / batch_size, batch_size)
         losses.update(loss.item(), batch_size)
 
         # compute gradient and do SGD step
@@ -88,70 +85,57 @@ def test_epoch(model, loader, print_freq=1, is_test=True):
     model.eval()
 
     end = time.time()
-    for batch_idx, (input, target) in enumerate(loader):
-        # Create vaiables
-        if torch.cuda.is_available():
-            input_var = torch.autograd.Variable(input.cuda(async=True), volatile=True)
-            target_var = torch.autograd.Variable(target.cuda(async=True), volatile=True)
-        else:
-            input_var = torch.autograd.Variable(input, volatile=True)
-            target_var = torch.autograd.Variable(target, volatile=True)
+    with torch.no_grad():
+        for batch_idx, (input, target) in enumerate(loader):
+            # Create vaiables
+            if torch.cuda.is_available():
+                input = input.cuda()
+                target = target.cuda()
 
-        # compute output
-        output = model(input_var)
-        loss = torch.nn.functional.cross_entropy(output, target_var)
+            # compute output
+            output = model(input)
+            loss = torch.nn.functional.cross_entropy(output, target)
 
-        # measure accuracy and record loss
-        batch_size = target.size(0)
-        _, pred = output.data.cpu().topk(1, dim=1)
-        error.update(torch.ne(pred.squeeze(), target.cpu()).float().sum() / batch_size, batch_size)
-        losses.update(loss.data[0], batch_size)
+            # measure accuracy and record loss
+            batch_size = target.size(0)
+            _, pred = output.data.cpu().topk(1, dim=1)
+            error.update(torch.ne(pred.squeeze(), target.cpu()).float().sum().item() / batch_size, batch_size)
+            losses.update(loss.item(), batch_size)
 
-        # measure elapsed time
-        batch_time.update(time.time() - end)
-        end = time.time()
+            # measure elapsed time
+            batch_time.update(time.time() - end)
+            end = time.time()
 
-        # print stats
-        if batch_idx % print_freq == 0:
-            res = '\t'.join([
-                'Test' if is_test else 'Valid',
-                'Iter: [%d/%d]' % (batch_idx + 1, len(loader)),
-                'Time %.3f (%.3f)' % (batch_time.val, batch_time.avg),
-                'Loss %.4f (%.4f)' % (losses.val, losses.avg),
-                'Error %.4f (%.4f)' % (error.val, error.avg),
-            ])
-            print(res)
+            # print stats
+            if batch_idx % print_freq == 0:
+                res = '\t'.join([
+                    'Test' if is_test else 'Valid',
+                    'Iter: [%d/%d]' % (batch_idx + 1, len(loader)),
+                    'Time %.3f (%.3f)' % (batch_time.val, batch_time.avg),
+                    'Loss %.4f (%.4f)' % (losses.val, losses.avg),
+                    'Error %.4f (%.4f)' % (error.val, error.avg),
+                ])
+                print(res)
 
     # Return summary statistics
     return batch_time.avg, losses.avg, error.avg
 
 
-def train(model, train_set, test_set, save, n_epochs=300, valid_size=5000,
+def train(model, train_set, valid_set, test_set, save, n_epochs=300,
           batch_size=64, lr=0.1, wd=0.0001, momentum=0.9, seed=None):
     if seed is not None:
         torch.manual_seed(seed)
 
-    # Create train/valid split
-    if valid_size:
-        indices = torch.randperm(len(train_set))
-        train_indices = indices[:len(indices) - valid_size]
-        train_sampler = torch.utils.data.sampler.SubsetRandomSampler(train_indices)
-        valid_indices = indices[len(indices) - valid_size:]
-        valid_sampler = torch.utils.data.sampler.SubsetRandomSampler(valid_indices)
-
     # Data loaders
+    train_loader = torch.utils.data.DataLoader(train_set, batch_size=batch_size, shuffle=True,
+                                               pin_memory=(torch.cuda.is_available()), num_workers=0)
     test_loader = torch.utils.data.DataLoader(test_set, batch_size=batch_size, shuffle=False,
                                               pin_memory=(torch.cuda.is_available()), num_workers=0)
-    if valid_size:
-        train_loader = torch.utils.data.DataLoader(train_set, batch_size=batch_size, sampler=train_sampler,
-                                                   pin_memory=(torch.cuda.is_available()), num_workers=0)
-        valid_loader = torch.utils.data.DataLoader(train_set, batch_size=batch_size, sampler=valid_sampler,
-                                                   pin_memory=(torch.cuda.is_available()), num_workers=0)
-    else:
-        train_loader = torch.utils.data.DataLoader(train_set, batch_size=batch_size, shuffle=True,
-                                                   pin_memory=(torch.cuda.is_available()), num_workers=0)
+    if valid_set is None:
         valid_loader = None
-
+    else:
+        valid_loader = torch.utils.data.DataLoader(valid_set, batch_size=batch_size, shuffle=False,
+                                                   pin_memory=(torch.cuda.is_available()), num_workers=0)
     # Model on cuda
     if torch.cuda.is_available():
         model = model.cuda()
@@ -264,6 +248,16 @@ def demo(data, save, depth=100, growth_rate=12, efficient=True, valid_size=5000,
     train_set = datasets.CIFAR10(data, train=True, transform=train_transforms, download=True)
     test_set = datasets.CIFAR10(data, train=False, transform=test_transforms, download=False)
 
+    if valid_size:
+        valid_set = datasets.CIFAR10(data, train=True, transform=test_transforms)
+        indices = torch.randperm(len(train_set))
+        train_indices = indices[:len(indices) - valid_size]
+        valid_indices = indices[len(indices) - valid_size:]
+        train_set = torch.utils.data.Subset(train_set, train_indices)
+        valid_set = torch.utils.data.Subset(valid_set, valid_indices)
+    else:
+        valid_set = None
+
     # Models
     model = DenseNet(
         growth_rate=growth_rate,
@@ -281,8 +275,8 @@ def demo(data, save, depth=100, growth_rate=12, efficient=True, valid_size=5000,
         raise Exception('%s is not a dir' % save)
 
     # Train the model
-    train(model=model, train_set=train_set, test_set=test_set, save=save,
-          valid_size=valid_size, n_epochs=n_epochs, batch_size=batch_size, seed=seed)
+    train(model=model, train_set=train_set, valid_set=valid_set, test_set=test_set, save=save,
+          n_epochs=n_epochs, batch_size=batch_size, seed=seed)
     print('Done!')
 
 
