@@ -12,14 +12,11 @@ grows quadratically with network depth.
 *It is worth emphasizing that this is not a property inherent to DenseNets, but rather to the implementation.*
 
 This implementation uses a new strategy to reduce the memory consumption of DenseNets.
-We assign all intermediate feature maps to two shared memory allocations,
-which are utilized by every Batch Norm and concatenation operation.
-Because the data in these allocations are temporary, we re-populate the outputs during back-propagation.
+We use [checkpointing](https://pytorch.org/docs/stable/checkpoint.html?highlight=checkpointing) to compute the Batch Norm and concatenation feature maps.
+These intermediate feature maps are discarded during the forward pass and recomputed for the backward pass.
 This adds 15-20% of time overhead for training, but **reduces feature map consumption from quadratic to linear.**
 
-For more details, please see the [technical report](https://arxiv.org/pdf/1707.06990.pdf).
-
-![Diagram of implementation](https://raw.github.com/gpleiss/efficient_densenet_pytorch/master/images/forward.png)
+This implementation is inspired by this [technical report](https://arxiv.org/pdf/1707.06990.pdf), which outlines a strategy for efficient DenseNets via memory sharing.
 
 ## Requirements
 - PyTorch >=1.0.0
@@ -81,7 +78,6 @@ A comparison of the two implementations (each is a DenseNet-BC with 100 layers, 
 ## Other efficient implementations
 - [LuaTorch](https://github.com/liuzhuang13/DenseNet/tree/master/models) (by Gao Huang)
 - [Tensorflow](https://github.com/joeyearsley/efficient_densenet_tensorflow) (by Joe Yearsley)
-- [MxNet](https://github.com/taineleau/efficient_densenet_mxnet) (by Danlu Chen)
 - [Caffe](https://github.com/Tongcheng/DN_CaffeScript) (by Tongcheng Li)
 
 ## Reference
