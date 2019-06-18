@@ -172,10 +172,11 @@ def train(model, train_set, valid_set, test_set, save, n_epochs=300,
         )
 
         # Determine if model is the best
-        if valid_loader and valid_error < best_error:
-            best_error = valid_error
-            print('New best error: %.4f' % best_error)
-            torch.save(model.state_dict(), os.path.join(save, 'model.dat'))
+        if valid_loader:
+            if valid_error < best_error:
+                best_error = valid_error
+                print('New best error: %.4f' % best_error)
+                torch.save(model.state_dict(), os.path.join(save, 'model.dat'))
         else:
             torch.save(model.state_dict(), os.path.join(save, 'model.dat'))
 
