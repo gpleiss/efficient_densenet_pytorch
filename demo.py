@@ -157,7 +157,6 @@ def train(model, train_set, valid_set, test_set, save, n_epochs=300,
     # Train model
     best_error = 1
     for epoch in range(n_epochs):
-        scheduler.step()
         _, train_loss, train_error = train_epoch(
             model=model_wrapper,
             loader=train_loader,
@@ -165,6 +164,7 @@ def train(model, train_set, valid_set, test_set, save, n_epochs=300,
             epoch=epoch,
             n_epochs=n_epochs,
         )
+        scheduler.step()
         _, valid_loss, valid_error = test_epoch(
             model=model_wrapper,
             loader=valid_loader if valid_loader else test_loader,
