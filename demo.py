@@ -263,11 +263,16 @@ def demo(data, save, depth=100, growth_rate=12, efficient=True, valid_size=5000,
     model = DenseNet(
         growth_rate=growth_rate,
         block_config=block_config,
+        num_init_features=growth_rate*2,
         num_classes=10,
         small_inputs=True,
         efficient=efficient,
     )
     print(model)
+    
+    # Print number of parameters
+    num_params = sum(p.numel() for p in model.parameters())
+    print("Total parameters: ", num_params)
 
     # Make save directory
     if not os.path.exists(save):
