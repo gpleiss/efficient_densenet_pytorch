@@ -232,8 +232,8 @@ def demo(data, save, depth=100, growth_rate=12, efficient=True, valid_size=5000,
     block_config = [(depth - 4) // 6 for _ in range(3)]
 
     # Data transforms
-    mean=[0.49139968  0.48215841  0.44653091]
-    stdv= [0.24703223  0.24348513  0.26158784]
+    mean = [0.49139968, 0.48215841, 0.44653091]
+    stdv = [0.24703223, 0.24348513, 0.26158784]
     train_transforms = transforms.Compose([
         transforms.RandomCrop(32, padding=4),
         transforms.RandomHorizontalFlip(),
